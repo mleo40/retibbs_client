@@ -7,6 +7,10 @@ RetiBBS ships with a terminal (Textual) client where you type menu commands. Thi
 chat rooms and users into a clickable list, opens messages in a reader, gives you post and reply dialogs, and shows
 the server's limits where they apply.
 
+The Welcome page after connecting, with the message of the day and the server's welcome message:
+
+![The Welcome page](docs/welcome_light.png)
+
 Reading a message (light theme):
 
 ![Reading a message in the light theme](docs/message_light.png)
@@ -30,13 +34,16 @@ Settings, with the address for board alerts:
   to open, right click for more.
 - Left: three tabs, each with its own buttons in its header.
   - Chat: the room you are in, with Leave room and a counter for the message size.
-  - Message: the post you opened, with Reply and New post.
+  - Message: the post you opened, with Reply and New post. Before you open one, and after Welcome, it shows the
+    message of the day and the server's welcome message.
   - Server log: everything the server sends. Type any RetiBBS command here.
 - A strip under the toolbar shows the server's answers: errors in red, confirmations in blue.
 - Status bar: connection, board alerts on or off, and round trip time.
 
 ## Features
 
+- Welcome page with the message of the day (the newest post on a board named `motd`) and the server's welcome
+  message
 - Boards with new message counts, paging, and a reader for messages and their replies
 - New post and reply dialogs that count bytes against the packet limit of your connection
 - Chat rooms: join, leave, start one, with a size counter on every message
@@ -61,6 +68,8 @@ they apply, and lists them under Help > Server limits.
 - Board alerts go to another LXMF app, such as Sideband, Columba, MeshChat or NomadNet. This client cannot receive
   them. An alert address can be replaced but not removed; turn alerts off per board instead.
 - Each BBS allows a display name only once. Board names are 3 to 20 letters or digits.
+- Any member can post on any board, `motd` included. The Welcome page shows who wrote the message of the day.
+- The welcome message is read from the server's theme when the server starts, so changing it needs a restart.
 - RetiBBS has no command to take admin rights away.
 
 ## How it works
@@ -208,6 +217,10 @@ the user that will run the server.
 7. Create boards: right click Message boards > New board. Names are 3 to 20 letters or digits, for example
    `general`, `nets`, `emcomm`. Members can post once a board exists.
 
+   For a message of the day, also create a board named `motd`. The client shows its newest post on the Welcome
+   page, so post there to change it; no restart is needed. Use `welcome_message.txt` in the theme for text that
+   rarely changes, such as rules or net times.
+
 8. Optional: make other admins. Double click Users, right click a user, Make admin.
 
 Board alerts are sent directly, never through a propagation node. If a member's LXMF app is offline when a post
@@ -278,6 +291,8 @@ Settings and saved servers live in `~/.config/retibbs-gui/`.
 
 ## Revision history
 
+- 0.3.0: Welcome page with the message of the day and the server's welcome message; empty board list says who can
+  create boards
 - 0.2.0: Clearer layout with per tab buttons, server limits marked, board alerts, user list for admins, own names
   for each BBS, fix for the OK button in name prompts
 - 0.1.0: First prototype
