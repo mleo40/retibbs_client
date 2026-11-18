@@ -19,7 +19,7 @@ from tkinter import font as tkfont
 
 import RNS
 
-from . import __version__, prefs
+from . import __version__, cache, prefs
 from .client import BOARDS, CHAT, MAIN, Client, Discovery
 from .parse import styled_runs
 from .theme import PALETTES, apply_theme
@@ -29,6 +29,7 @@ ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 REFRESH_MS = 100
 NOTICE_MS = 9000
 ROOT_ID, BOARDS_ID, ROOMS_ID, USERS_ID, OFFLINE_ID = "server", "boards", "rooms", "users", "offline"
+ARCHIVE_ID = "archive"
 CHAT_TAB, MESSAGE_TAB, LOG_TAB = 0, 1, 2
 MOTD_BOARD = "motd"  # the newest post on a board with this name is the message of the day
 BOARD_NAME = re.compile(r"[A-Za-z0-9]{3,20}")
@@ -361,11 +362,46 @@ class SettingsDialog(Dialog):
         self.dark_var = tk.BooleanVar(value=app.settings["theme"] == "dark")
         ttk.Checkbutton(looks, text="Dark mode", variable=self.dark_var).grid(row=0, column=2, sticky="w", padx=(12, 0))
 
+        copy = ttk.LabelFrame(body, text="Offline copy", padding=8)
+        copy.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        copy.columnconfigure(0, weight=1)
+        self.copy_var = tk.BooleanVar(value=app.settings["offline_copy"])
+        self.keep_var = tk.BooleanVar(value=app.settings["keep_deleted_boards"])
+        ttk.Checkbutton(
+            copy, text="Keep an offline copy of BBSes I connect to", variable=self.copy_var,
+            command=self.update_copy_widgets,
+        ).grid(row=0, column=0, sticky="w")
+        self.keep_check = ttk.Checkbutton(copy, text="Keep boards deleted on the server", variable=self.keep_var)
+        self.keep_check.grid(row=1, column=0, sticky="w", padx=(20, 0))
+        self.delete_copies_button = ttk.Button(copy, text="Delete offline copies", command=self.delete_copies)
+        self.delete_copies_button.grid(row=0, column=1, rowspan=2, sticky="e")
+        ttk.Label(
+            copy, style="Muted.TLabel", wraplength=440, justify="left",
+            text="Boards and the messages you opened are saved on this computer, so you can read them while not "
+                 "connected, and only new posts are downloaded when you connect. Chat is never saved.",
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.update_copy_widgets()
+
         who = ttk.LabelFrame(body, text="Your BBS identity", padding=8)
-        who.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        who.grid(row=4, column=0, sticky="ew", pady=(8, 0))
         ttk.Label(who, text=app.identity.hash.hex()).pack(side="left")
         ttk.Button(who, text="Copy", command=lambda: app.copy(app.identity.hash.hex())).pack(side="right")
         self.buttons()
+
+    def update_copy_widgets(self):
+        self.keep_check.state(["!disabled" if self.copy_var.get() else "disabled"])
+        self.delete_copies_button.state(["!disabled" if cache.has_any() else "disabled"])
+
+    def delete_copies(self):
+        if messagebox.askyesno(
+            "Delete offline copies", "Delete the offline copies of every BBS on this computer?\n\nThis cannot be "
+            "undone.", parent=self,
+        ):
+            cache.delete_all()
+            self.app.cache = None
+            self.update_copy_widgets()
+            if self.app.client is None:
+                self.app.offline()
 
     def address(self):
         address = clean_hash(self.alert_var.get())
@@ -402,7 +438,24 @@ class SettingsDialog(Dialog):
         except (tk.TclError, ValueError):
             pass
         settings["theme"] = "dark" if self.dark_var.get() else "light"
+        was_copying, copying = settings["offline_copy"], self.copy_var.get()
+        if was_copying and not copying and cache.has_any() and messagebox.askyesno(
+            "Offline copy", "Delete the offline copies already on this computer?\n\nNo keeps them on disk, unused "
+            "until you turn the offline copy on again.", parent=self,
+        ):
+            cache.delete_all()
+        settings["offline_copy"] = copying
+        settings["keep_deleted_boards"] = self.keep_var.get()
         settings.save()
+        app = self.app
+        if copying != was_copying:
+            app.cache = None
+            if copying and app.client is not None and app.server_hash:
+                app.cache = cache.ServerCache(app.server_hash)
+                settings["last_server"] = app.server_hash
+                settings.save()
+            if app.client is None:
+                app.offline()
         self.app.dark_var.set(settings["theme"] == "dark")
         self.app.apply_settings()
         self.destroy()
@@ -474,6 +527,8 @@ class App:
         self.client = None
         self.server_name = None
         self.server_hash = None
+        self.cache = None  # offline copy of the current or last BBS, when the setting is on
+        self.offline_view = False  # True while browsing the offline copy without a connection
         self.reset_state()
         self.started = False
         self.quiet_alert = False
@@ -864,7 +919,13 @@ class App:
         self.server_name = name or RNS.prettyhexrep(bytes.fromhex(hash_hex))
         self.client = Client(self.identity)
         self.started = False
+        self.offline_view = False
         self.reset_state()
+        self.cache = None
+        if self.settings["offline_copy"]:
+            self.cache = cache.ServerCache(hash_hex)
+            self.settings["last_server"] = hash_hex
+            self.settings.save()
         self.show_server_name()
         self.account_label.configure(text="connecting...")
         self.log(f"Connecting to {self.server_name}...")
@@ -893,11 +954,36 @@ class App:
             self.server_label.configure(text="Not connected")
             self.root.title(APP_TITLE)
         self.rns_label.configure(image=self.icons["rns_off"])
-        self.tree.delete(*self.tree.get_children())
-        self.tree.insert("", "end", iid=OFFLINE_ID, text=" Not connected. Click Connect... to pick a BBS.")
+        self.offline_view = self.load_offline_copy()
+        if self.offline_view:
+            self.status_var.set(f"Not connected. Offline copy of {self.server_name} from {self.cache.updated}")
+        self.rebuild_tree()
         self.set_connected_widgets(False)
         self.show_room()
         self.show_reader_empty()
+
+    def load_offline_copy(self):
+        """Fill the boards and Welcome page from the offline copy of the current or last BBS, if there is one."""
+        hash_hex = self.server_hash or self.settings["last_server"]
+        if not self.settings["offline_copy"] or not hash_hex:
+            return False
+        if self.cache is None or os.path.basename(self.cache.path) != hash_hex + ".json":
+            self.cache = cache.ServerCache(hash_hex)
+        if not self.cache.exists():
+            return False
+        self.reset_state()
+        self.server_name = self.servers.get(hash_hex, {}).get("name") or RNS.prettyhexrep(bytes.fromhex(hash_hex))
+        self.boards = list(self.cache.boards)
+        self.messages = {board: (1, 1, self.cache.board_list(board)) for board in self.boards}
+        self.welcome = self.cache.welcome
+        motd = self.cache.board_list(MOTD_BOARD)
+        self.motd = self.cache.message(motd[0]["id"]) if motd else None
+        return True
+
+    def save_cache(self):
+        if self.cache is not None:
+            self.cache.save(time.strftime("%Y-%m-%d %H:%M"))
+            self.fill_archive()
 
     def set_connected_widgets(self, online):
         state = "!disabled" if online else "disabled"
@@ -992,7 +1078,30 @@ class App:
         self.on_board(board, "lm", "lu")
 
     def read_message(self, board, message_id):
+        if self.cache is not None and message_id not in self.unread.get(board, set()):
+            listed = {message["id"]: message for message in self.messages.get(board, (1, 1, []))[2]}
+            if message_id in listed:
+                cached = self.cache.fresh_message(message_id, listed[message_id]["replies"])
+                if cached:
+                    self.show_message(dict(cached))
+                    return
         self.on_board(board, f"r {message_id}")
+
+    def open_cached(self, message_id):
+        """Show a message from the offline copy."""
+        message = self.cache.message(message_id) if self.cache else None
+        if message is None:
+            self.show_notice("info", "This message is not in your offline copy. Connect to read it.")
+            return
+        self.show_message(dict(message))
+
+    def remove_archived(self, index):
+        if messagebox.askyesno(
+            "Remove from offline copy", "Remove this deleted board and its messages from your offline copy?",
+            parent=self.root,
+        ):
+            self.cache.remove_archived(index)
+            self.save_cache()
 
     def join_room(self, room):
         if self.navigate(CHAT, f"/j {room}", "/list"):
@@ -1144,7 +1253,7 @@ class App:
         self.reading = None
         self.reply_button.state(["disabled"])
         client = self.client
-        if client is None:
+        if client is None and not self.offline_view:
             self.reader_title.configure(text="Not connected")
             self.notebook.tab(MESSAGE_TAB, text="Message")
             self.set_text(self.reader, [])
@@ -1153,7 +1262,10 @@ class App:
         self.home_button.state(["!disabled"])
         self.reader_title.configure(text="")
         self.notebook.tab(MESSAGE_TAB, text="Welcome")
-        chunks = [(self.server_name + "\n", ("title",)), ("Message of the day\n", ("heading",))]
+        chunks = [(self.server_name + "\n", ("title",))]
+        if client is None:
+            chunks.append((f"Offline copy from {self.cache.updated}. Connect to get new posts.\n", ("hint",)))
+        chunks.append(("Message of the day\n", ("heading",)))
         if self.motd:
             motd = self.motd
             chunks.append((motd["topic"] + "\n", ("bold",)))
@@ -1178,7 +1290,8 @@ class App:
         self.reader.see("1.0")
         if reload:
             self.notebook.select(MESSAGE_TAB)
-            self.load_motd()
+            if client is not None:
+                self.load_motd()
 
     def load_motd(self):
         """Fetch the newest post on the motd board, unless that would take the user out of a chat room."""
@@ -1208,7 +1321,7 @@ class App:
         return chunks
 
     def show_message(self, message):
-        message["board"] = self.client.board
+        message.setdefault("board", self.client.board if self.client else "")
         self.reading = message
         chunks = [(message["topic"] + "\n", ("title",))]
         meta = f"{message['author']}  ·  {message['time']}  ·  #{message['id']} in {message['board']}"
@@ -1226,7 +1339,7 @@ class App:
         self.reader_title.configure(text=f"{message['board']} › {message['topic']}")
         topic = message["topic"] if len(message["topic"]) <= 22 else message["topic"][:21] + "…"
         self.notebook.tab(MESSAGE_TAB, text=f"Message: {topic}")
-        self.reply_button.state(["!disabled"])
+        self.reply_button.state(["!disabled" if self.client and self.client.connected else "disabled"])
         self.notebook.select(MESSAGE_TAB)
         self.unread.get(message["board"], set()).discard(message["id"])
         self.fill_boards()
@@ -1252,13 +1365,40 @@ class App:
         tree = self.tree
         tree.delete(*tree.get_children())
         if self.client is None:
-            return
-        tree.insert("", "end", iid=ROOT_ID, text=" " + self.server_name, image=self.icons["server"], open=True)
+            tree.insert("", "end", iid=OFFLINE_ID, text=" Not connected. Click Connect... to pick a BBS.")
+            if not self.offline_view:
+                return
+        name = self.server_name + ("  (offline copy)" if self.client is None else "")
+        tree.insert("", "end", iid=ROOT_ID, text=" " + name, image=self.icons["server"], open=True)
         tree.insert(ROOT_ID, "end", iid=BOARDS_ID, text=" Message boards", open=True)
-        tree.insert(ROOT_ID, "end", iid=ROOMS_ID, text=" Chat rooms", open=True)
+        if self.client is not None:
+            tree.insert(ROOT_ID, "end", iid=ROOMS_ID, text=" Chat rooms", open=True)
         self.fill_boards()
         self.fill_rooms()
         self.fill_users()
+        self.fill_archive()
+
+    def fill_archive(self):
+        """Boards deleted on the server that the offline copy keeps."""
+        if self.tree.exists(ARCHIVE_ID):
+            self.tree.delete(ARCHIVE_ID)
+        if self.cache is None or not self.cache.archived or not self.tree.exists(ROOT_ID):
+            return
+        self.tree.insert(ROOT_ID, "end", iid=ARCHIVE_ID, text=" Deleted on server", open=False)
+        for index, board in enumerate(self.cache.archived):
+            iid = f"arch:{index}"
+            self.tree.insert(ARCHIVE_ID, "end", iid=iid, text=f" {board['name']}  (deleted {board['deleted']})",
+                             image=self.icons["channel_locked"])
+            for message in board["list"]:
+                self.tree.insert(iid, "end", iid=f"amsg:{index}:{message['id']}", text=self.message_label(message))
+
+    def message_label(self, message):
+        """Tree text for a message: topic, author, replies, and whether the offline copy has it."""
+        replies = message["replies"]
+        text = f"{message['topic']}  by {message['author']}" + (f"  ({replies})" if replies else "")
+        if self.client is None and self.cache is not None and self.cache.message(message["id"]) is None:
+            text += "  (not saved)"
+        return text
 
     def fill_boards(self):
         if not self.tree.exists(BOARDS_ID):
@@ -1290,10 +1430,8 @@ class App:
         if page > 1:
             self.tree.insert(iid, "end", iid=f"prev:{board}", text="‹ Newer messages")
         for message in messages:
-            replies = message["replies"]
-            text = f"{message['topic']}  by {message['author']}" + (f"  ({replies})" if replies else "")
             tags = ("unread",) if message["id"] in unread else ()
-            self.tree.insert(iid, "end", iid=f"msg:{board}:{message['id']}", text=text, tags=tags)
+            self.tree.insert(iid, "end", iid=f"msg:{board}:{message['id']}", text=self.message_label(message), tags=tags)
         if page < pages:
             self.tree.insert(iid, "end", iid=f"next:{board}", text=f"Older messages ›  (page {page} of {pages})")
         if not messages:
@@ -1344,10 +1482,13 @@ class App:
             if selection:
                 self.connect_dialog()
             return "break"
-        if not self.online():
-            return "break"
         iid = selection[0]
         kind, _, rest = iid.partition(":")
+        if kind == "amsg" or (kind == "msg" and not (self.client and self.client.connected)):
+            self.open_cached(int(rest.rpartition(":")[2]))
+            return "break"
+        if self.client is None:
+            return "break"
         if iid == BOARDS_ID:
             self.open_boards()
         elif iid in (ROOMS_ID, "rooms:none"):
@@ -1372,11 +1513,17 @@ class App:
 
     def tree_menu(self, event):
         iid = self.tree.identify_row(event.y)
-        if not iid or self.client is None:
+        if not iid:
             return
         self.tree.selection_set(iid)
         kind, _, rest = iid.partition(":")
         menu = tk.Menu(self.root, tearoff=0)
+        if kind == "arch":
+            menu.add_command(label="Remove from offline copy...", command=lambda: self.remove_archived(int(rest)))
+            menu.tk_popup(event.x_root, event.y_root)
+            return
+        if self.client is None:
+            return
         admin = self.client.is_admin
         if iid == ROOT_ID:
             menu.add_command(label="Rename...", command=self.rename_server)
@@ -1541,7 +1688,11 @@ class App:
         elif kind == "boards":
             self.boards = event[1]
             if MOTD_BOARD not in self.boards:
-                self.motd = None
+                # a motd board made again later is a new board: check it again then
+                self.motd, self.motd_checked = None, False
+            if self.cache is not None:
+                self.cache.set_boards(self.boards, self.settings["keep_deleted_boards"], time.strftime("%Y-%m-%d"))
+                self.save_cache()
             self.fill_boards()
             if not self.motd_checked and MOTD_BOARD in self.boards:
                 self.load_motd()
@@ -1549,6 +1700,9 @@ class App:
                 self.show_home()
         elif kind == "welcome":
             self.welcome = event[1]
+            if self.cache is not None:
+                self.cache.welcome = event[1]
+                self.save_cache()
             if self.reading is None:
                 self.show_home()
         elif kind == "watchlist":
@@ -1577,11 +1731,21 @@ class App:
         elif kind == "messages":
             _, board, page, pages, messages = event
             self.messages[board] = (page, pages, messages)
+            if self.cache is not None:
+                keep = self.settings["keep_deleted_boards"]
+                self.cache.set_page(board, page, pages, messages, keep, time.strftime("%Y-%m-%d"))
+                self.save_cache()
             if board == MOTD_BOARD and self.motd_state == "listing":
                 if messages:
-                    newest = max(message["id"] for message in messages)
-                    self.motd_state = ("reading", newest)
-                    client.run(f"r {newest}")
+                    newest = max(messages, key=lambda message: message["id"])
+                    cached = self.cache.fresh_message(newest["id"], newest["replies"]) if self.cache else None
+                    if cached:
+                        self.motd, self.motd_state = dict(cached), None
+                        if self.reading is None:
+                            self.show_home()
+                    else:
+                        self.motd_state = ("reading", newest["id"])
+                        client.run(f"r {newest['id']}")
                 else:
                     self.motd_state, self.motd = None, None
                     if self.reading is None:
@@ -1595,6 +1759,9 @@ class App:
             self.fill_boards()
         elif kind == "message":
             message = event[1]
+            if self.cache is not None and client.board:
+                self.cache.put_message(client.board, message)
+                self.save_cache()
             if self.motd_state == ("reading", message["id"]) and client.board == MOTD_BOARD:
                 message["board"] = MOTD_BOARD
                 self.motd, self.motd_state = message, None

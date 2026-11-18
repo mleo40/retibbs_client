@@ -303,6 +303,22 @@ More:
 - Keys: Ctrl+O connect, Ctrl+D disconnect, Ctrl+N new post, F5 refresh, Ctrl+1, 2 and 3 for the tabs, Ctrl+Q
   quit.
 
+### Offline copy
+
+Off by default; turn it on in Settings > Offline copy. The client then saves, per BBS, the board list, the message
+lists and every message you open:
+
+- While not connected, the last BBS you used is shown from the copy, marked "offline copy". You can browse boards
+  and read the messages you opened; others are marked "(not saved)". Posting, replies and chat need a connection.
+- When connected, a message you already read is shown from the copy unless it got new replies, so only new posts
+  are downloaded. Unread messages always come from the server, which marks them read.
+- Keep boards deleted on the server: a deleted board stays in the copy under Deleted on server, read only. A board
+  deleted and made again under the same name is kept apart from the old one. Right click a deleted board to remove
+  it from the copy.
+- Delete offline copies removes them all. Turning the copy off asks whether to delete them or keep them unused.
+
+Chat is never saved, by the server or the client.
+
 Settings and saved servers live in `~/.config/retibbs-gui/`, on Windows `C:\Users\<you>\.config\retibbs-gui\`.
 
 ## Tests
@@ -326,6 +342,8 @@ Help > About in the client shows the version and these projects:
 
 ## Revision history
 
+- 0.7.0: Optional offline copy of each BBS, with deleted boards kept if you choose; a message of the day board made
+  again is shown without reconnecting
 - 0.6.1: Reply dialog opens at a normal width
 - 0.6.0: New room button in the Chat tab; tab buttons centered
 - 0.5.0: Shorter chat note; no repeated Welcome heading; right click menus on macOS; macOS and Windows install
