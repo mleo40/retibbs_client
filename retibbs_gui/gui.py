@@ -7,16 +7,19 @@ Chat (the room you are in), Message (the post you opened) and Server log (raw se
 
 import argparse
 import os
+import platform
 import queue
 import re
 import time
 import tkinter as tk
+import webbrowser
+from importlib import metadata
 from tkinter import messagebox, ttk
 from tkinter import font as tkfont
 
 import RNS
 
-from . import prefs
+from . import __version__, prefs
 from .client import BOARDS, CHAT, MAIN, Client, Discovery
 from .parse import styled_runs
 from .theme import PALETTES, apply_theme
@@ -30,6 +33,20 @@ CHAT_TAB, MESSAGE_TAB, LOG_TAB = 0, 1, 2
 MOTD_BOARD = "motd"  # the newest post on a board with this name is the message of the day
 BOARD_NAME = re.compile(r"[A-Za-z0-9]{3,20}")
 LXMF_ADDRESS = re.compile(r"[0-9a-f]{32}")
+NAME_TAKEN = re.compile(r"^ERROR: The name '.*' is already taken\.$")
+REPO_URL = "https://github.com/mleo40/retibbs_client"
+CREDITS = (
+    ("RetiBBS", "Steve Miller, KC1AWV", "MIT", "https://github.com/kc1awv/RetiBBS",
+     "The BBS server and protocol this client talks to"),
+    ("partyline", "RFnexus", "Public domain", "https://github.com/RFnexus/partyline",
+     "Look and layout: theme, palettes, window arrangement"),
+    ("Reticulum", "Mark Qvist", "Reticulum License", "https://reticulum.network",
+     "The network stack"),
+    ("Rich", "Will McGugan", "MIT", "https://github.com/Textualize/rich",
+     "Colors in server text"),
+    ("Tabler Icons", "Tabler", "MIT", "https://tabler.io/icons",
+     "Icons"),
+)
 
 CHAT_LIMIT_TEXT = (
     "Chat is live only. The server does not store it, so you see only what is said while you are in the room. "
@@ -393,6 +410,59 @@ class SettingsDialog(Dialog):
         self.destroy()
         if commands and client and client.connected:
             self.app.navigate(MAIN, *commands, "h")
+
+
+class AboutDialog(Dialog):
+    def __init__(self, app):
+        super().__init__(app.root, "About")
+        body = self.body
+        body.columnconfigure(1, weight=1)
+        ttk.Label(body, text="RetiBBS desktop client", font=app.title_font).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(body, text=f"Version {__version__}").grid(row=1, column=0, columnspan=2, sticky="w")
+        ttk.Label(
+            body, wraplength=520, justify="left",
+            text="A desktop client for RetiBBS bulletin boards on Reticulum networks: boards, chat rooms, board "
+                 "alerts and admin tools, with the server's limits shown where they apply.",
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.link(body, REPO_URL, row=3)
+        ttk.Label(body, text="MIT License, Copyright (c) 2026 mleo40", style="Muted.TLabel").grid(
+            row=4, column=0, columnspan=2, sticky="w"
+        )
+
+        ttk.Label(body, text="Built on", font=app.bold_font).grid(row=5, column=0, columnspan=2, sticky="w", pady=(12, 2))
+        row = 6
+        for name, author, licence, url, what in CREDITS:
+            ttk.Label(body, text=name, font=app.bold_font).grid(row=row, column=0, sticky="nw", padx=(0, 12))
+            ttk.Label(body, text=f"{what}. By {author}, {licence}.", wraplength=420, justify="left").grid(
+                row=row, column=1, sticky="w"
+            )
+            self.link(body, url, row=row + 1, column=1)
+            row += 2
+
+        versions = f"Python {platform.python_version()}, Reticulum {package_version('rns')}, Tk {tk.TkVersion}"
+        ttk.Label(body, text=versions, style="Muted.TLabel").grid(row=row, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        identity = app.identity.hash.hex()
+        who = ttk.Frame(body)
+        who.grid(row=row + 1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        ttk.Label(who, text=f"Your BBS identity: {identity}", style="Muted.TLabel").pack(side="left")
+        ttk.Button(who, text="Copy", command=lambda: app.copy(identity)).pack(side="right")
+
+        buttons = ttk.Frame(body)
+        buttons.grid(row=99, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        ttk.Button(buttons, text="Close", command=self.ok).pack(side="right")
+
+    @staticmethod
+    def link(parent, url, row, column=0):
+        label = ttk.Label(parent, text=url, foreground="#3b82c4", cursor="hand2")
+        label.grid(row=row, column=column, columnspan=2 - column, sticky="w")
+        label.bind("<Button-1>", lambda event: webbrowser.open(url))
+
+
+def package_version(name):
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return "unknown"
 
 
 # main window
@@ -846,15 +916,18 @@ class App:
         if name:
             # the server cannot answer "h" until the user has a name
             steps.append("h")
-        client.run(*steps)
+        if steps:
+            client.goto(MAIN, *steps)  # name and alert commands only work in the main menu
         client.goto(CHAT, "/list")
         client.goto(BOARDS, "lb", "wl")
 
     def ask_display_name(self):
+        if self.client is None:
+            return
         name = self.ask_name(
             "Pick a display name",
             "RetiBBS needs a display name before it answers.\nIt is shown on your posts and chat, and each BBS "
-            "allows a name only once.",
+            "allows a name only once, so pick another if yours is taken.",
         )
         if name:
             self.settings["display_name"] = name
@@ -1453,6 +1526,8 @@ class App:
             self.update_account()
         elif kind == "boards":
             self.boards = event[1]
+            if MOTD_BOARD not in self.boards:
+                self.motd = None
             self.fill_boards()
             if not self.motd_checked and MOTD_BOARD in self.boards:
                 self.load_motd()
@@ -1479,6 +1554,12 @@ class App:
                 self.quiet_alert = False
             else:
                 self.show_notice(event[1], event[2])
+            if NAME_TAKEN.match(event[2]):
+                # keep the name the server has; without one it does not answer, so ask for another
+                self.settings["display_name"] = client.user_name or ""
+                self.settings.save()
+                if not client.user_name:
+                    self.root.after(10, self.ask_display_name)
         elif kind == "messages":
             _, board, page, pages, messages = event
             self.messages[board] = (page, pages, messages)
@@ -1571,13 +1652,7 @@ class App:
         dialog.show()
 
     def about(self):
-        messagebox.showinfo(
-            APP_TITLE,
-            "A desktop client for RetiBBS (github.com/kc1awv/RetiBBS).\n\n"
-            "Look and layout from partyline (github.com/RFnexus/partyline).\n"
-            f"Your identity: {RNS.prettyhexrep(self.identity.hash)}",
-            parent=self.root,
-        )
+        AboutDialog(self).show()
 
 
 def main():
