@@ -289,7 +289,7 @@ First steps in the window:
    if you want your own name for it, then Connect.
 2. On the first connection, pick a display name. If someone on that BBS already has it, the client asks again.
 3. Double click a board to list its messages; new ones are bold. Double click a message to read it.
-4. Double click a chat room to join it, or right click Chat rooms to start one.
+4. Double click a chat room to join it. To start one, click New room in the Chat tab, or right click Chat rooms.
 
 More:
 
@@ -326,6 +326,7 @@ Help > About in the client shows the version and these projects:
 
 ## Revision history
 
+- 0.6.0: New room button in the Chat tab; tab buttons centered
 - 0.5.0: Shorter chat note; no repeated Welcome heading; right click menus on macOS; macOS and Windows install
   steps
 - 0.4.0: About page with version and credits; asks again when a display name is taken; clears the message of

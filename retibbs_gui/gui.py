@@ -649,6 +649,12 @@ class App:
         header.pack(fill="x")
         return frame, header
 
+    def header_buttons(self, header):
+        """A frame for a tab's buttons, centered in the header space beside its title."""
+        buttons = ttk.Frame(header, style="Header.TFrame")
+        buttons.pack(side="left", expand=True)
+        return buttons
+
     def text_area(self, frame):
         holder = ttk.Frame(frame)
         holder.pack(fill="both", expand=True, pady=(3, 0))
@@ -675,8 +681,11 @@ class App:
         self.room_label.pack(side="left")
         self.room_hint = ttk.Label(header, style="HeaderMuted.TLabel")
         self.room_hint.pack(side="left", padx=(8, 0))
-        self.leave_button = ttk.Button(header, text="Leave room", command=self.leave_room)
-        self.leave_button.pack(side="right")
+        buttons = self.header_buttons(header)
+        self.new_room_button = ttk.Button(buttons, text="New room", command=self.ask_room)
+        self.new_room_button.pack(side="left", padx=(0, 4))
+        self.leave_button = ttk.Button(buttons, text="Leave room", command=self.leave_room)
+        self.leave_button.pack(side="left")
         limit_note(frame, CHAT_LIMIT_TEXT).pack(fill="x")
         self.chat = self.text_area(frame)
         row, self.chat_entry, self.chat_send = self.entry_row(frame, self.send_chat)
@@ -688,12 +697,13 @@ class App:
         frame, header = self.tab("Message")
         self.reader_title = ttk.Label(header, style="Header.TLabel")
         self.reader_title.pack(side="left")
-        self.reply_button = ttk.Button(header, text="Reply", command=self.reply)
-        self.reply_button.pack(side="right")
-        self.post_button = ttk.Button(header, text="New post", command=self.new_post)
-        self.post_button.pack(side="right", padx=(0, 4))
-        self.home_button = ttk.Button(header, text="Welcome", command=lambda: self.show_home(reload=True))
-        self.home_button.pack(side="right", padx=(0, 4))
+        buttons = self.header_buttons(header)
+        self.home_button = ttk.Button(buttons, text="Welcome", command=lambda: self.show_home(reload=True))
+        self.home_button.pack(side="left", padx=(0, 4))
+        self.post_button = ttk.Button(buttons, text="New post", command=self.new_post)
+        self.post_button.pack(side="left", padx=(0, 4))
+        self.reply_button = ttk.Button(buttons, text="Reply", command=self.reply)
+        self.reply_button.pack(side="left")
         self.reader = self.text_area(frame)
 
     def build_log_tab(self):
@@ -890,7 +900,8 @@ class App:
 
     def set_connected_widgets(self, online):
         state = "!disabled" if online else "disabled"
-        for widget in (self.disconnect_button, self.post_button, self.console_entry, self.console_send):
+        for widget in (self.disconnect_button, self.post_button, self.new_room_button, self.console_entry,
+                       self.console_send):
             widget.state([state])
         self.reply_button.state(["!disabled" if online and self.reading else "disabled"])
         self.update_chat_count()
