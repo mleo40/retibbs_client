@@ -95,100 +95,126 @@ The client does not need its own rnsd service. When it starts, it looks for a sh
 If the client started Reticulum, closing it takes the network down for every app attached to it. If you run several
 Reticulum apps, or want the machine always reachable, run `rnsd` as a service and let the apps attach to it.
 
-## Recommended server setup
+## Run your own server
 
-If you run a RetiBBS server, these settings suit this client. None of them need changes to the server code.
+These steps set up a RetiBBS server that suits this client. They need no changes to the server code. Run them as
+the user that will run the server.
 
-`server_config.json`:
+1. Install Reticulum, LXMF and the server:
 
-```json
-{
-    "server_name": "Club BBS",
-    "announce_interval": 600,
-    "theme": "radio",
-    "enable_web_server": false,
-    "use_wsgi": false
-}
-```
+   ```bash
+   pip install --user rns lxmf rich
+   git clone https://github.com/kc1awv/RetiBBS.git
+   cd RetiBBS/server
+   ```
 
-- `server_name`: shown in the client's list of BBSes heard on the network. Keep it short.
-- `announce_interval`: the client finds servers from their announces. If this is missing or 0, the server does not
-  announce on a schedule and users need its address. Use about 600 seconds on mixed networks, 1800 on LoRa only
-  networks to save airtime, and 300 on TCP.
-- `enable_web_server`: off. The client does not use the read only web page.
+2. Create `server_config.json` in the `server` folder:
 
-A light theme. The server resends its header and a menu every time the client moves between areas, which the
-default theme makes about 2 KB each time; opening a board from a chat room is two moves. The client shows these
-menus only in the Server log, so one line each is enough. Create `themes/radio/` in the server folder with:
+   ```json
+   {
+       "server_name": "Club BBS",
+       "announce_interval": 600,
+       "theme": "radio",
+       "enable_web_server": false,
+       "use_wsgi": false
+   }
+   ```
 
-| File | Contents |
-|---|---|
-| `header.txt` | `Club BBS` |
-| `welcome_message.txt` | `Welcome to Club BBS. Set a display name with: n <name>` |
-| `main_menu.txt` | `Main menu. ? for help.` |
-| `boards_menu.txt` | `Message boards. ? for help.` |
-| `chat_menu.txt` | `Chat. /? for help.` |
+   - `server_name`: shown in the client's list of BBSes heard on the network. Keep it short.
+   - `announce_interval`: how often the server announces itself, in seconds. With 0 or no value it never announces
+     and users need its address. Use about 600 on mixed networks, 1800 on LoRa only networks, 300 on TCP.
+   - `enable_web_server`: off. The client does not use the read only web page.
 
-The server reads `themes`, its databases and `lxmf_storage` from the folder it starts in, so start it from the
-server folder. The theme is always taken from `server_config.json` in that folder; `--config-file` only changes the
-name, announces and web server.
+3. Create a light theme. The server sends its header and a menu each time the client moves between areas, about
+   2 KB with the default theme. The client shows these only in the Server log, so one line each is enough. Create
+   `themes/radio/` in the `server` folder with these files:
 
-The first admin. RetiBBS has no command for this, so set it once in the server's user database:
+   | File | Contents |
+   |---|---|
+   | `header.txt` | `Club BBS` |
+   | `welcome_message.txt` | `Welcome to Club BBS. Set a display name with: n <name>` |
+   | `main_menu.txt` | `Main menu. ? for help.` |
+   | `boards_menu.txt` | `Message boards. ? for help.` |
+   | `chat_menu.txt` | `Chat. /? for help.` |
 
-1. Connect once with this client, so the server creates your account.
-2. Settings > Your BBS identity > Copy.
-3. Run the command below in the server folder with your identity pasted in. The server reads the database on every
-   command, so no restart is needed. In the client, BBS > Check my account picks up the change.
+4. Make the server reachable. Reticulum finds machines on the local network by IPv6 multicast, which many Wi-Fi
+   networks and firewalls block; the log then says "No multicast echoes received". To link machines over TCP
+   instead, add this to `~/.reticulum/config` on the server, under `[interfaces]`, and open TCP port 4242 in its
+   firewall:
 
-```bash
-sqlite3 users.db "UPDATE users SET is_admin=1 WHERE hash_hex='PASTE_IDENTITY_HERE';"
-```
+   ```
+     [[LAN TCP]]
+       type = TCPServerInterface
+       enabled = yes
+       listen_ip = 0.0.0.0
+       listen_port = 4242
+   ```
 
-After that, create the boards from the client (right click Message boards > New board) and make other admins from
-the user list. Members cannot post until at least one board exists.
+   On each client machine, add this with the server's IP address:
 
-Start the server against a shared `rnsd`, so the BBS and its board alerts use the same interfaces:
+   ```
+     [[BBS server]]
+       type = TCPClientInterface
+       enabled = yes
+       target_host = 192.168.1.20
+       target_port = 4242
+   ```
 
-```bash
-cd RetiBBS/server && python retibbs_server.py --config-file server_config.json --identity-file server_identity.pem
-```
+5. Start `rnsd`, then the server, each in its own `screen` or `tmux` session:
 
-The server prints its address at start, labelled "Identity hash". That is the address clients connect to.
+   ```bash
+   rnsd
+   ```
 
-Running unattended. The server waits for keyboard input (Enter sends an announce) and exits when that input closes,
-so it stops at once under `nohup` or a service manager. Run it in `tmux` or `screen`, or keep its input open:
+   ```bash
+   cd RetiBBS/server && python3 retibbs_server.py --config-file server_config.json
+   ```
 
-```bash
-tail -f /dev/null | python retibbs_server.py
-```
+   - Only one program can own Reticulum on a machine. If `rnsd` warns that it "connected to another shared local
+     instance", another Reticulum program (an older `rnsd`, MeshChat, Sideband, NomadNet) is already running. Stop
+     it, start `rnsd`, then start the other program again so it attaches to `rnsd`.
+   - Check the TCP interface is up with `ss -ltn | grep 4242`. It should show `0.0.0.0:4242`.
+   - Start the server from its own folder. It reads its theme, databases and `lxmf_storage` from there, and always
+     takes the theme from `server_config.json` in that folder.
+   - The server waits for keyboard input (Enter sends an announce) and exits when that input closes, so it stops at
+     once under `nohup` or a service manager. Keep it in `screen` or `tmux`, or run
+     `tail -f /dev/null | python3 retibbs_server.py`.
+   - The server prints its address at start, labelled "Identity hash". That is the address clients connect to.
 
-Reaching the server on a LAN. Reticulum finds machines on the local network by IPv6 multicast, which many Wi-Fi
-networks and firewalls block; the log then says "No multicast echoes received". Link the machines over TCP instead.
-On the server, add to `~/.reticulum/config` under `[interfaces]` and open TCP port 4242:
+6. Connect with this client and make yourself the first admin. A new server has no boards, and only admins can
+   create them. RetiBBS has no command for the first admin, so set it in the server's user database:
 
-```
-  [[LAN TCP]]
-    type = TCPServerInterface
-    enabled = yes
-    listen_ip = 0.0.0.0
-    listen_port = 4242
-```
+   1. Connect with this client: Connect..., paste the server's address, Connect, and pick a display name.
+   2. Settings > Your BBS identity > Copy.
+   3. In the server's `server` folder, run this with your identity pasted in:
 
-On each client machine, with the server's IP address:
+      ```bash
+      sqlite3 users.db "UPDATE users SET is_admin=1 WHERE hash_hex='PASTE_IDENTITY_HERE';"
+      ```
 
-```
-  [[BBS server]]
-    type = TCPClientInterface
-    enabled = yes
-    target_host = 192.168.1.20
-    target_port = 4242
-```
+      Without the `sqlite3` tool:
 
-Board alerts are sent directly, never through a propagation node. If the member's LXMF app is offline when a post
-arrives, the alert is lost after a few retries. Members who want alerts should keep that app running and reachable.
+      ```bash
+      python3 - <<'EOF'
+      import sqlite3
+      db = sqlite3.connect("users.db")
+      db.execute("UPDATE users SET is_admin=1 WHERE hash_hex=?", ("PASTE_IDENTITY_HERE",))
+      db.commit()
+      EOF
+      ```
+
+   4. In the client, BBS > Check my account. The toolbar now says admin. No server restart is needed.
+
+7. Create boards: right click Message boards > New board. Names are 3 to 20 letters or digits, for example
+   `general`, `nets`, `emcomm`. Members can post once a board exists.
+
+8. Optional: make other admins. Double click Users, right click a user, Make admin.
+
+Board alerts are sent directly, never through a propagation node. If a member's LXMF app is offline when a post
+arrives, that alert is lost after a few retries.
 
 Back up `server_identity.pem` (the BBS address; a new one means a new address), `users.db`, `boards.db` and
-`lxmf_storage/`.
+`lxmf_storage/`, all in the `server` folder.
 
 ## Install
 
