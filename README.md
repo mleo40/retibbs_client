@@ -326,6 +326,7 @@ Help > About in the client shows the version and these projects:
 
 ## Revision history
 
+- 0.6.1: Reply dialog opens at a normal width
 - 0.6.0: New room button in the Chat tab; tab buttons centered
 - 0.5.0: Shorter chat note; no repeated Welcome heading; right click menus on macOS; macOS and Windows install
   steps

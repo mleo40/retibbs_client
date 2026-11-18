@@ -91,7 +91,8 @@ def clean_hash(text):
 def limit_note(parent, text):
     """A server limit, shown the same way everywhere: a tinted strip starting with "Server limit"."""
     frame = ttk.Frame(parent, style="Limit.TFrame", padding=(8, 4))
-    label = ttk.Label(frame, text="ⓘ  Server limit: " + text, style="Limit.TLabel", justify="left")
+    # Start wrapped, so a dialog does not size itself to the note on one line; it re-wraps to the real width
+    label = ttk.Label(frame, text="ⓘ  Server limit: " + text, style="Limit.TLabel", justify="left", wraplength=420)
     label.pack(fill="x")
     frame.bind("<Configure>", lambda event: label.configure(wraplength=max(200, event.width - 20)))
     return frame
