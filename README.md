@@ -1,33 +1,74 @@
 # retibbs_client
 
 A desktop client for [RetiBBS](https://github.com/kc1awv/RetiBBS), the bulletin board system for Reticulum networks.
-It uses the look and layout of [partyline](https://github.com/RFnexus/partyline): a server tree on the right, chat
-and reading on the left, light and dark themes.
+It uses the look and layout of [partyline](https://github.com/RFnexus/partyline), with light and dark themes.
 
-RetiBBS ships with a terminal (Textual) client where you type menu commands. This client turns the boards, messages
-and chat rooms into a clickable tree, opens messages in a reader, and gives you post and reply dialogs. A Console
-tab still shows everything the server sends and takes raw commands.
+RetiBBS ships with a terminal (Textual) client where you type menu commands. This client turns the boards, messages,
+chat rooms and users into a clickable list, opens messages in a reader, gives you post and reply dialogs, and shows
+the server's limits where they apply.
 
 Reading a message (light theme):
 
-![Reading a message in the light theme](docs/reader_light.png)
+![Reading a message in the light theme](docs/message_light.png)
 
-Chatting in a room (dark theme):
+Chatting in a room, as an admin with the user list loaded (dark theme):
 
 ![Chatting in a room in the dark theme](docs/chat_dark.png)
+
+Writing a post that is too long for one packet, with the limit of a LoRa link:
+
+![The post dialog over its size limit](docs/post_dialog.png)
+
+Settings, with the address for board alerts:
+
+![The settings dialog](docs/settings_dialog.png)
+
+## Layout
+
+- Toolbar: the connection only. Connect, Disconnect, the BBS name and who you are signed in as, and Settings.
+- Right: everything on the BBS. Message boards and their messages, chat rooms, and Users for admins. Double click
+  to open, right click for more.
+- Left: three tabs, each with its own buttons in its header.
+  - Chat: the room you are in, with Leave room and a counter for the message size.
+  - Message: the post you opened, with Reply and New post.
+  - Server log: everything the server sends. Type any RetiBBS command here.
+- A strip under the toolbar shows the server's answers: errors in red, confirmations in blue.
+- Status bar: connection, board alerts on or off, and round trip time.
+
+## Features
+
+- Boards with new message counts, paging, and a reader for messages and their replies
+- New post and reply dialogs that count bytes against the packet limit of your connection
+- Chat rooms: join, leave, start one, with a size counter on every message
+- Board alerts: set your LXMF address in Settings, send a test, and turn alerts on per board
+- Admins: list users, make admins, create and delete boards
+- Your own name for each BBS, kept when the server announces a different one
+- Asks for a display name on first connect, since RetiBBS needs one before it answers
+
+## Server limits
+
+These come from the RetiBBS server, not from this client. The client marks them with a yellow Server limit note where
+they apply, and lists them under Help > Server limits.
+
+- Posts and replies must fit in one Reticulum packet, topic included. The size depends on the slowest link to the
+  server: a few hundred bytes over LoRa or packet radio, far more over TCP or a local network.
+- Posts cannot be edited or deleted. Only admins can delete a board, with all its messages.
+- Chat is live only and not stored. You see only what is said while you are in the room.
+- You stay in a room only while you are in the chat area. Opening the boards, changing your name or alert address,
+  or listing users takes you out of the room. The client asks first.
+- Each chat message must also fit in one packet, together with the room and your name.
+- No file sharing.
+- Board alerts go to another LXMF app, such as Sideband, Columba, MeshChat or NomadNet. This client cannot receive
+  them. An alert address can be replaced but not removed; turn alerts off per board instead.
+- Each BBS allows a display name only once. Board names are 3 to 20 letters or digits.
+- RetiBBS has no command to take admin rights away.
 
 ## How it works
 
 RetiBBS servers reply with text meant for people plus a few control packets (`CTRL AREA`, `CTRL BOARD`,
-`CTRL ROOM`). The client recognises the replies it needs (board list, message list, a message, room list, chat
-lines) by their wording and shows anything else in the Console tab. It also moves between the server's areas for
-you: opening a board sends `b`, `cb <board>`, `lm`; joining a room sends `/b`, `c`, `/j <room>`.
-
-Limits that come from the server:
-
-- Leaving the chat area leaves your chat room. Opening the boards while in a room asks first.
-- A post or reply must fit in one Reticulum packet. The limit depends on the link; the post dialog shows it.
-- The server cannot answer "who am I" until you have a display name. Set one in Settings.
+`CTRL ROOM`). The client recognises the replies it needs by their wording and shows everything in the Server log. It
+also moves between the server's areas for you: opening a board sends `b`, `cb <board>`, `lm`; joining a room sends
+`/b`, `c`, `/j <room>`.
 
 ## Compatibility
 
@@ -83,15 +124,23 @@ Use another Reticulum configuration:
 .venv/bin/retibbs-gui --reticulum-config ~/.reticulum-test
 ```
 
-In the window:
+First steps in the window:
 
-- Server > Connect opens Favourites and Discovered servers (from announces). Double click one to connect.
-- Double click a board to list its messages. Unread messages are bold. Double click a message to read it.
-- Toolbar New post and Reply open dialogs. Right click a board to watch it for LXMF alerts.
-- Double click a chat room to join it. Right click Chat Rooms to create one. Type in the Chat tab to talk.
-- Commands typed in the Chat tab that start with `/` go to the server's chat area (`/list`, `/leave`).
-- The Console tab shows the server's own menus and takes any RetiBBS command, for example `?` or `wl`.
-- Admins also get New board and Delete board on right click.
+1. Connect... lists your saved BBSes and the ones heard on the network. Pick one or paste its address. Type a Name
+   if you want your own name for it, then Connect.
+2. On the first connection, pick a display name.
+3. Double click a board to list its messages; new ones are bold. Double click a message to read it.
+4. Double click a chat room to join it, or right click Chat rooms to start one.
+
+More:
+
+- Board alerts: Settings > Board alerts, paste the LXMF address of your phone or other LXMF app, Send test. Then
+  right click a board and tick Alert me about new posts.
+- Rename a BBS: right click its name at the top of the list, or Server > Rename this BBS.
+- Commands typed in the Chat box that start with `/` go to the server's chat area, for example `/list`.
+- Admins: double click Users to load them; right click a user to make them an admin. Right click Message boards for
+  New board, or a board for Delete board.
+- Keys: Ctrl+O connect, Ctrl+N new post, F5 refresh, Ctrl+1, 2 and 3 for the tabs.
 
 Settings and saved servers live in `~/.config/retibbs-gui/`.
 
@@ -108,4 +157,6 @@ Settings and saved servers live in `~/.config/retibbs-gui/`.
 
 ## Revision history
 
+- 0.2.0: Clearer layout with per tab buttons, server limits marked, board alerts, user list for admins, own names
+  for each BBS, fix for the OK button in name prompts
 - 0.1.0: First prototype
