@@ -939,7 +939,10 @@ class App:
         if not self.online():
             return
         if not self.boards:
-            self.error("This BBS has no boards yet. An admin has to create one first.")
+            if self.client.is_admin:
+                self.show_notice("info", "Create a board first: right click Message boards > New board.")
+            else:
+                self.error("This BBS has no boards yet, and only an admin can create one.")
             return
         result = PostDialog(self, self.boards, board or self.client.board).show()
         if result:
@@ -1094,6 +1097,7 @@ class App:
         else:
             self.alert_var.set("Board alerts: " + ("on" if client.alert_address else "no address set"))
         if self.tree.exists(ROOT_ID):
+            self.fill_boards()  # the empty board hint depends on admin rights
             self.fill_users()
 
     # tree
@@ -1126,7 +1130,9 @@ class App:
             )
             self.fill_messages(board)
         if not self.boards:
-            self.tree.insert(BOARDS_ID, "end", iid="boards:none", text="(no boards yet)")
+            admin = bool(self.client and self.client.is_admin)
+            hint = "right click Message boards to create one" if admin else "only an admin can create one"
+            self.tree.insert(BOARDS_ID, "end", iid="boards:none", text=f"(no boards yet; {hint})")
 
     def fill_messages(self, board):
         iid = "board:" + board
