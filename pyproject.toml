@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "retibbs-gui"
+description = "Desktop client for RetiBBS bulletin boards over Reticulum"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dynamic = ["version"]
+dependencies = ["rns>=1.0", "rich"]
+
+[project.scripts]
+retibbs-gui = "retibbs_gui.gui:main"
+
+[tool.setuptools]
+packages = ["retibbs_gui"]
+
+[tool.setuptools.package-data]
+retibbs_gui = ["icons/*.png", "icons/LICENSE"]
+
+[tool.setuptools.dynamic]
+version = {attr = "retibbs_gui.__version__"}
