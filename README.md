@@ -8,6 +8,14 @@ RetiBBS ships with a terminal (Textual) client where you type menu commands. Thi
 and chat rooms into a clickable tree, opens messages in a reader, and gives you post and reply dialogs. A Console
 tab still shows everything the server sends and takes raw commands.
 
+Reading a message (light theme):
+
+![Reading a message in the light theme](docs/reader_light.png)
+
+Chatting in a room (dark theme):
+
+![Chatting in a room in the dark theme](docs/chat_dark.png)
+
 ## How it works
 
 RetiBBS servers reply with text meant for people plus a few control packets (`CTRL AREA`, `CTRL BOARD`,
