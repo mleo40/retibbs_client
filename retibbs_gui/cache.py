@@ -133,3 +133,24 @@ def delete_all(directory=CACHE_DIR):
 
 def has_any(directory=CACHE_DIR):
     return os.path.isdir(directory) and any(name.endswith(".json") for name in os.listdir(directory))
+
+
+def usage(directory=CACHE_DIR):
+    """Disk space taken by the offline copies: (bytes, number of BBSes)."""
+    if not os.path.isdir(directory):
+        return 0, 0
+    sizes = [entry.stat().st_size for entry in os.scandir(directory) if entry.name.endswith(".json")]
+    return sum(sizes), len(sizes)
+
+
+def describe_usage(directory=CACHE_DIR):
+    """Usage as text for people, such as "412 KB for 2 BBSes"."""
+    size, count = usage(directory)
+    if not count:
+        return "No offline copies on this computer."
+    for unit in ("bytes", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            break
+        size /= 1024
+    amount = f"{size:.0f} {unit}" if unit in ("bytes", "KB") else f"{size:.1f} {unit}"
+    return f"Offline copies use {amount} for {count} BBS{'es' if count != 1 else ''}."

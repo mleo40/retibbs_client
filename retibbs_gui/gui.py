@@ -380,6 +380,8 @@ class SettingsDialog(Dialog):
             text="Boards and the messages you opened are saved on this computer, so you can read them while not "
                  "connected, and only new posts are downloaded when you connect. Chat is never saved.",
         ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.usage_label = ttk.Label(copy)
+        self.usage_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.update_copy_widgets()
 
         who = ttk.LabelFrame(body, text="Your BBS identity", padding=8)
@@ -391,6 +393,7 @@ class SettingsDialog(Dialog):
     def update_copy_widgets(self):
         self.keep_check.state(["!disabled" if self.copy_var.get() else "disabled"])
         self.delete_copies_button.state(["!disabled" if cache.has_any() else "disabled"])
+        self.usage_label.configure(text=cache.describe_usage())
 
     def delete_copies(self):
         if messagebox.askyesno(

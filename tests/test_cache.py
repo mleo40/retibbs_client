@@ -94,6 +94,15 @@ class ServerCacheTest(unittest.TestCase):
         self.assertEqual([], self.cache.archived)
         self.assertIsNone(self.cache.message(7))
 
+    def test_usage(self):
+        self.assertEqual("No offline copies on this computer.", cache.describe_usage(self.directory))
+        self.cache.save("now")
+        cache.ServerCache("cd" * 16, self.directory).save("now")
+        size, count = cache.usage(self.directory)
+        self.assertEqual(2, count)
+        self.assertGreater(size, 0)
+        self.assertEqual(f"Offline copies use {size} bytes for 2 BBSes.", cache.describe_usage(self.directory))
+
     def test_delete_all(self):
         self.cache.save("now")
         cache.delete_all(self.directory)

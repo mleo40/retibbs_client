@@ -315,7 +315,8 @@ lists and every message you open:
 - Keep boards deleted on the server: a deleted board stays in the copy under Deleted on server, read only. A board
   deleted and made again under the same name is kept apart from the old one. Right click a deleted board to remove
   it from the copy.
-- Delete offline copies removes them all. Turning the copy off asks whether to delete them or keep them unused.
+- Settings shows how much disk space the copies use. Delete offline copies removes them all. Turning the copy off
+  asks whether to delete them or keep them unused.
 
 Chat is never saved, by the server or the client.
 
@@ -342,6 +343,7 @@ Help > About in the client shows the version and these projects:
 
 ## Revision history
 
+- 0.7.1: Settings shows the disk space the offline copies use
 - 0.7.0: Optional offline copy of each BBS, with deleted boards kept if you choose; a message of the day board made
   again is shown without reconnecting
 - 0.6.1: Reply dialog opens at a normal width
