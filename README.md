@@ -95,6 +95,61 @@ The client does not need its own rnsd service. When it starts, it looks for a sh
 If the client started Reticulum, closing it takes the network down for every app attached to it. If you run several
 Reticulum apps, or want the machine always reachable, run `rnsd` as a service and let the apps attach to it.
 
+## Recommended server setup
+
+If you run a RetiBBS server, these settings suit this client. None of them need changes to the server code.
+
+`server_config.json`:
+
+```json
+{
+    "server_name": "Club BBS",
+    "announce_interval": 600,
+    "theme": "radio",
+    "enable_web_server": false,
+    "use_wsgi": false
+}
+```
+
+- `server_name`: shown in the client's list of BBSes heard on the network. Keep it short.
+- `announce_interval`: the client finds servers from their announces. If this is missing or 0, the server does not
+  announce on a schedule and users need its address. Use about 600 seconds on mixed networks, 1800 on LoRa only
+  networks to save airtime, and 300 on TCP.
+- `enable_web_server`: off. The client does not use the read only web page.
+
+A light theme. The server resends its header and a menu every time the client moves between areas, which the
+default theme makes about 2 KB each time; opening a board from a chat room is two moves. The client shows these
+menus only in the Server log, so one line each is enough. Create `themes/radio/` in the server folder with:
+
+| File | Contents |
+|---|---|
+| `header.txt` | `Club BBS` |
+| `welcome_message.txt` | `Welcome to Club BBS. Set a display name with: n <name>` |
+| `main_menu.txt` | `Main menu. ? for help.` |
+| `boards_menu.txt` | `Message boards. ? for help.` |
+| `chat_menu.txt` | `Chat. /? for help.` |
+
+The server looks for `themes` in the folder it starts in, so start it from the server folder.
+
+The first admin. RetiBBS has no command for this, so set it once in the server's user database:
+
+1. Connect once with this client, so the server creates your account.
+2. Settings > Your BBS identity > Copy.
+3. Stop the server, run the command below in its folder with your identity pasted in, and start it again.
+
+```bash
+sqlite3 users.db "UPDATE users SET is_admin=1 WHERE hash_hex='PASTE_IDENTITY_HERE';"
+```
+
+After that, create the boards from the client (right click Message boards > New board) and make other admins from
+the user list. Members cannot post until at least one board exists.
+
+Start the server against a shared `rnsd`, so the BBS and its board alerts use the same interfaces:
+
+```bash
+cd RetiBBS/server && python retibbs_server.py --config-file server_config.json --identity-file server_identity.pem
+```
+
 ## Install
 
 ```bash
