@@ -27,6 +27,7 @@ REFRESH_MS = 100
 NOTICE_MS = 9000
 ROOT_ID, BOARDS_ID, ROOMS_ID, USERS_ID, OFFLINE_ID = "server", "boards", "rooms", "users", "offline"
 CHAT_TAB, MESSAGE_TAB, LOG_TAB = 0, 1, 2
+MOTD_BOARD = "motd"  # the newest post on a board with this name is the message of the day
 BOARD_NAME = re.compile(r"[A-Za-z0-9]{3,20}")
 LXMF_ADDRESS = re.compile(r"[0-9a-f]{32}")
 
@@ -450,6 +451,10 @@ class App:
         self.rooms = []
         self.users = None  # None until an admin loads them
         self.reading = None
+        self.welcome = ""  # the server's welcome message, sent once on connect
+        self.motd = None  # newest post on the motd board
+        self.motd_state = None  # "listing", or ("reading", id) while the motd is being fetched
+        self.motd_checked = False
 
     # building
     def build_menu(self):
@@ -615,6 +620,8 @@ class App:
         self.reply_button.pack(side="right")
         self.post_button = ttk.Button(header, text="New post", command=self.new_post)
         self.post_button.pack(side="right", padx=(0, 4))
+        self.home_button = ttk.Button(header, text="Welcome", command=lambda: self.show_home(reload=True))
+        self.home_button.pack(side="right", padx=(0, 4))
         self.reader = self.text_area(frame)
 
     def build_log_tab(self):
@@ -662,6 +669,8 @@ class App:
             text.tag_configure("hint", foreground=self.palette["muted"])
         self.reader.tag_configure("title", font=self.title_font)
         self.reader.tag_configure("meta", foreground=self.palette["muted"])
+        self.reader.tag_configure("fixed", font=self.fixed_font)
+        self.reader.tag_configure("heading", font=self.bold_font, spacing1=10, spacing3=4)
         self.console.tag_configure("bold", font=self.fixed_bold_font)
 
     # text output
@@ -690,20 +699,7 @@ class App:
         self.append(self.chat, chunks)
 
     def console_write(self, markup_text, tag=None):
-        chunks = []
-        for chunk, color, bold in styled_runs(markup_text):
-            tags = []
-            if tag:
-                tags.append(tag)
-            if color:
-                name = "c" + color.lstrip("#")
-                if name not in self.color_tags:
-                    self.console.tag_configure(name, foreground=color)
-                    self.color_tags.add(name)
-                tags.append(name)
-            if bold:
-                tags.append("bold")
-            chunks.append((chunk, tuple(tags)))
+        chunks = self.styled(self.console, markup_text, (tag,) if tag else ())
         chunks.append(("\n", ()))
         self.append(self.console, chunks)
 
@@ -944,7 +940,8 @@ class App:
             else:
                 self.error("This BBS has no boards yet, and only an admin can create one.")
             return
-        result = PostDialog(self, self.boards, board or self.client.board).show()
+        current = self.client.board if self.client.board != MOTD_BOARD else None
+        result = PostDialog(self, self.boards, board or current).show()
         if result:
             self.on_board(*result)
 
@@ -1053,12 +1050,75 @@ class App:
         self.update_chat_count()
 
     def show_reader_empty(self):
+        self.show_home()
+
+    def show_home(self, reload=False):
+        """The Message tab before a message is opened: message of the day and the server's welcome message."""
         self.reading = None
-        self.reader_title.configure(text="No message open")
-        self.notebook.tab(MESSAGE_TAB, text="Message")
-        hint = "Double click a message in the list on the right to read it here." if self.client else ""
-        self.set_text(self.reader, [(hint, ("hint",))])
         self.reply_button.state(["disabled"])
+        client = self.client
+        if client is None:
+            self.reader_title.configure(text="Not connected")
+            self.notebook.tab(MESSAGE_TAB, text="Message")
+            self.set_text(self.reader, [])
+            self.home_button.state(["disabled"])
+            return
+        self.home_button.state(["!disabled"])
+        self.reader_title.configure(text=f"Welcome to {self.server_name}")
+        self.notebook.tab(MESSAGE_TAB, text="Welcome")
+        chunks = [(self.server_name + "\n", ("title",)), ("Message of the day\n", ("heading",))]
+        if self.motd:
+            motd = self.motd
+            chunks.append((motd["topic"] + "\n", ("bold",)))
+            chunks.append((f"{motd['author']}  \u00b7  {motd['time']}\n\n", ("meta",)))
+            chunks.append((motd["body"] + "\n", ()))
+        elif self.motd_state:
+            chunks.append(("Loading...\n", ("hint",)))
+        elif MOTD_BOARD in self.boards:
+            chunks.append(("The motd board has no posts yet.\n", ("hint",)))
+        else:
+            chunks.append((
+                f"None. Admins: create a board named {MOTD_BOARD}; its newest post shows here.\n", ("hint",)
+            ))
+        chunks.append(("Welcome message\n", ("heading",)))
+        if self.welcome:
+            chunks += self.styled(self.reader, self.welcome, ("fixed",))
+            chunks.append(("\n", ()))
+        else:
+            chunks.append(("The server has not sent one yet.\n", ("hint",)))
+        chunks.append(("\nDouble click a message in the list on the right to read it.", ("hint",)))
+        self.set_text(self.reader, chunks)
+        self.reader.see("1.0")
+        if reload:
+            self.notebook.select(MESSAGE_TAB)
+            self.load_motd()
+
+    def load_motd(self):
+        """Fetch the newest post on the motd board, unless that would take the user out of a chat room."""
+        client = self.client
+        if not client or not client.connected or MOTD_BOARD not in self.boards or self.motd_state:
+            return
+        if client.room and client.planned_area() == CHAT:
+            return
+        self.motd_checked = True
+        self.motd_state = "listing"
+        self.on_board(MOTD_BOARD, "lm")
+
+    def styled(self, widget, markup_text, base_tags=()):
+        """Chunks for a text widget from Rich markup, with a tag per color."""
+        chunks = []
+        for chunk, color, bold in styled_runs(markup_text):
+            tags = list(base_tags)
+            if color:
+                name = "c" + color.lstrip("#")
+                if (widget, name) not in self.color_tags:
+                    widget.tag_configure(name, foreground=color)
+                    self.color_tags.add((widget, name))
+                tags.append(name)
+            if bold:
+                tags.append("bold")
+            chunks.append((chunk, tuple(tags)))
+        return chunks
 
     def show_message(self, message):
         message["board"] = self.client.board
@@ -1394,6 +1454,14 @@ class App:
         elif kind == "boards":
             self.boards = event[1]
             self.fill_boards()
+            if not self.motd_checked and MOTD_BOARD in self.boards:
+                self.load_motd()
+            elif self.reading is None:
+                self.show_home()
+        elif kind == "welcome":
+            self.welcome = event[1]
+            if self.reading is None:
+                self.show_home()
         elif kind == "watchlist":
             self.watched = set(event[1])
             self.fill_boards()
@@ -1414,6 +1482,15 @@ class App:
         elif kind == "messages":
             _, board, page, pages, messages = event
             self.messages[board] = (page, pages, messages)
+            if board == MOTD_BOARD and self.motd_state == "listing":
+                if messages:
+                    newest = max(message["id"] for message in messages)
+                    self.motd_state = ("reading", newest)
+                    client.run(f"r {newest}")
+                else:
+                    self.motd_state, self.motd = None, None
+                    if self.reading is None:
+                        self.show_home()
             self.fill_boards()
             item = "board:" + board
             if self.tree.exists(item):
@@ -1422,11 +1499,20 @@ class App:
             self.unread[event[1]] = set(event[2])
             self.fill_boards()
         elif kind == "message":
-            self.show_message(event[1])
+            message = event[1]
+            if self.motd_state == ("reading", message["id"]) and client.board == MOTD_BOARD:
+                message["board"] = MOTD_BOARD
+                self.motd, self.motd_state = message, None
+                if self.reading is None:
+                    self.show_home()
+            else:
+                self.show_message(message)
         elif kind == "posted":
             self.show_notice("info", "Posted.")
             if self.reading and self.reading.get("board") == client.board:
                 client.run(f"r {self.reading['id']}")
+            if client.board == MOTD_BOARD and not self.motd_state:
+                self.motd_state = "listing"  # a new message of the day
             client.run("lm", "lu")
         elif kind == "rooms":
             self.rooms = event[1]

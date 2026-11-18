@@ -75,6 +75,7 @@ class Client:
         self._waiting = None  # (kind, value, deadline)
         self._lock = threading.RLock()
         self._stopped = threading.Event()
+        self._expect_welcome = False
 
     # connection
     def event(self, *event):
@@ -119,6 +120,8 @@ class Client:
         self.link = link
 
     def _established(self, link):
+        # the server's first resource after connecting is its welcome message (the theme's welcome_message.txt)
+        self._expect_welcome = True
         link.identify(self.identity)
         self.event("connected", RNS.Transport.hops_to(link.destination.hash))
         threading.Thread(target=self._housekeeping, args=(link,), daemon=True).start()
@@ -251,7 +254,11 @@ class Client:
     # receiving
     def _resource(self, resource):
         if resource.status == RNS.Resource.COMPLETE:
-            self._text(resource.data.read())
+            data = resource.data.read()
+            if self._expect_welcome:
+                self._expect_welcome = False
+                self.event("welcome", data.decode("utf-8", "replace"))
+            self._text(data)
 
     def _packet(self, data, packet):
         if data == b"PONG":
