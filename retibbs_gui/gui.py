@@ -635,7 +635,12 @@ class App:
         self.tree.tag_configure("unread", font=self.bold_font)
         self.tree.bind("<Double-1>", self.tree_open)
         self.tree.bind("<Return>", self.tree_open)
-        self.tree.bind("<Button-3>", self.tree_menu)
+        # Right click is Button-3 on Linux and Windows; Tk on macOS reports it as Button-2, or Ctrl-click
+        right_clicks = ("<Button-3>",)
+        if self.root.tk.call("tk", "windowingsystem") == "aqua":
+            right_clicks = ("<Button-2>", "<Button-3>", "<Control-Button-1>")
+        for sequence in right_clicks:
+            self.tree.bind(sequence, self.tree_menu)
 
     def tab(self, title):
         frame = ttk.Frame(self.notebook)
@@ -1134,7 +1139,7 @@ class App:
             self.home_button.state(["disabled"])
             return
         self.home_button.state(["!disabled"])
-        self.reader_title.configure(text=f"Welcome to {self.server_name}")
+        self.reader_title.configure(text="")
         self.notebook.tab(MESSAGE_TAB, text="Welcome")
         chunks = [(self.server_name + "\n", ("title",)), ("Message of the day\n", ("heading",))]
         if self.motd:

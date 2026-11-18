@@ -83,7 +83,7 @@ also moves between the server's areas for you: opening a board sends `b`, `cb <b
 
 ## Compatibility
 
-- Python 3.10 or newer, Linux, macOS or Windows
+- Python 3.10 or newer, Linux, macOS or Windows. Tested on Linux only so far.
 - Tested against the RetiBBS server at commit `7c26d2c` (January 2026)
 - Uses the same identity file as the RetiBBS Textual client, so you keep your account and admin rights
 
@@ -92,7 +92,8 @@ also moves between the server's areas for you: opening a board sends `b`, `cb <b
 - [Reticulum](https://reticulum.network/) (`rns`) with a working configuration
 - [Rich](https://github.com/Textualize/rich) for colors in server menus
 - Tk for Python, which pip cannot install. On Debian or Ubuntu: `sudo apt install python3-tk`. On Fedora:
-  `sudo dnf install python3-tkinter`
+  `sudo dnf install python3-tkinter`. The Python installers from python.org for macOS and Windows include Tk;
+  Homebrew's Python needs `brew install python-tk`.
 
 ## Reticulum
 
@@ -233,6 +234,10 @@ Back up `server_identity.pem` (the BBS address; a new one means a new address), 
 
 ## Install
 
+Get the code with git, or download it as a zip from GitHub (Code > Download ZIP) and unpack it.
+
+Linux and macOS, in a terminal:
+
 ```bash
 git clone https://github.com/mleo40/retibbs_client.git
 cd retibbs_client
@@ -240,15 +245,33 @@ python3 -m venv .venv
 .venv/bin/pip install .
 ```
 
+Windows, in PowerShell or Command Prompt, with Python from python.org (tick "Add python.exe to PATH" when
+installing):
+
+```bat
+git clone https://github.com/mleo40/retibbs_client.git
+cd retibbs_client
+py -m venv .venv
+.venv\Scripts\pip install .
+```
+
+To update later, run `git pull` (or download the zip again) and repeat the `pip install .` line.
+
 ## Usage
 
-Start the client:
+Start the client, from the `retibbs_client` folder. Linux and macOS:
 
 ```bash
 .venv/bin/retibbs-gui
 ```
 
-Connect straight to a server:
+Windows:
+
+```bat
+.venv\Scripts\retibbs-gui
+```
+
+The options below work the same way on every system. Connect straight to a server:
 
 ```bash
 .venv/bin/retibbs-gui --server b40428672a09c6c100ca82c10e5d945f
@@ -270,6 +293,7 @@ First steps in the window:
 
 More:
 
+- Right click on macOS: Ctrl-click or a two finger click also works.
 - Board alerts: Settings > Board alerts, paste the LXMF address of your phone or other LXMF app, Send test. Then
   right click a board and tick Alert me about new posts.
 - Rename a BBS: right click its name at the top of the list, or Server > Rename this BBS.
@@ -279,7 +303,7 @@ More:
 - Keys: Ctrl+O connect, Ctrl+D disconnect, Ctrl+N new post, F5 refresh, Ctrl+1, 2 and 3 for the tabs, Ctrl+Q
   quit.
 
-Settings and saved servers live in `~/.config/retibbs-gui/`.
+Settings and saved servers live in `~/.config/retibbs-gui/`, on Windows `C:\Users\<you>\.config\retibbs-gui\`.
 
 ## Tests
 
@@ -302,6 +326,8 @@ Help > About in the client shows the version and these projects:
 
 ## Revision history
 
+- 0.5.0: Shorter chat note; no repeated Welcome heading; right click menus on macOS; macOS and Windows install
+  steps
 - 0.4.0: About page with version and credits; asks again when a display name is taken; clears the message of
   the day when the motd board is deleted
 - 0.3.0: Welcome page with the message of the day and the server's welcome message; empty board list says who can
