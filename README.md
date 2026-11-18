@@ -11,22 +11,6 @@ The Welcome page after connecting, with the message of the day and the server's 
 
 ![The Welcome page](docs/welcome_light.png)
 
-Reading a message (light theme):
-
-![Reading a message in the light theme](docs/message_light.png)
-
-Chatting in a room, as an admin with the user list loaded (dark theme):
-
-![Chatting in a room in the dark theme](docs/chat_dark.png)
-
-Writing a post that is too long for one packet, with the limit of a LoRa link:
-
-![The post dialog over its size limit](docs/post_dialog.png)
-
-Settings, with the address for board alerts:
-
-![The settings dialog](docs/settings_dialog.png)
-
 ## Layout
 
 - Toolbar: the connection only. Connect, Disconnect, the BBS name and who you are signed in as, and Settings.
@@ -54,6 +38,145 @@ Settings, with the address for board alerts:
 - Asks for a display name on first connect, since RetiBBS needs one before it answers, and again if it is taken
 - Help > About: version, links, and the projects this client builds on
 
+## Compatibility
+
+- Python 3.10 or newer, Linux, macOS or Windows. Tested on Linux only so far.
+- Tested against the RetiBBS server at commit `7c26d2c` (January 2026)
+- Uses the same identity file as the RetiBBS Textual client, so you keep your account and admin rights
+
+## Requirements
+
+- [Reticulum](https://reticulum.network/) (`rns`) with a working configuration
+- [Rich](https://github.com/Textualize/rich) for colors in server menus
+- Tk for Python, which pip cannot install. On Debian or Ubuntu: `sudo apt install python3-tk`. On Fedora:
+  `sudo dnf install python3-tkinter`. The Python installers from python.org for macOS and Windows include Tk;
+  Homebrew's Python needs `brew install python-tk`.
+
+## Install
+
+The client installs as an app with [pipx](https://pipx.pypa.io/), which keeps its Python packages to itself and
+puts the `retibbs-gui` command on your PATH.
+
+1. Install pipx, Tk and git:
+
+   | System | Command |
+   |---|---|
+   | Debian, Ubuntu | `sudo apt install pipx python3-tk git` |
+   | Fedora | `sudo dnf install pipx python3-tkinter git` |
+   | macOS | Python from python.org, then `python3 -m pip install --user pipx` (or `brew install pipx python-tk`) |
+   | Windows | Python from python.org (tick "Add python.exe to PATH"), then `py -m pip install --user pipx` |
+
+   Then run `pipx ensurepath` and open a new terminal. On Windows use `py -m pipx` wherever these steps say `pipx`.
+
+2. Get the code and install it:
+
+   ```bash
+   git clone https://github.com/mleo40/retibbs_client.git
+   pipx install --editable ./retibbs_client
+   ```
+
+   Keep the `./` (or give the full path, such as `~/retibbs_client`): without it pipx looks for a package of that
+   name online. `--editable` runs the code from your clone, so updating is just:
+
+   ```bash
+   git -C retibbs_client pull
+   ```
+
+   If an update changes the required packages, also run `pipx install --force --editable ./retibbs_client`.
+
+   Without a clone, `pipx install git+https://github.com/mleo40/retibbs_client.git` works too; update it with
+   `pipx upgrade retibbs-gui`.
+
+3. Linux only, optional: add RetiBBS to your applications menu, with its icon:
+
+   ```bash
+   mkdir -p ~/.local/share/applications ~/.local/share/icons/hicolor/256x256/apps
+   cp retibbs_client/docs/retibbs-gui.desktop ~/.local/share/applications/
+   cp retibbs_client/retibbs_gui/icons/retibbs-gui.png ~/.local/share/icons/hicolor/256x256/apps/
+   ```
+
+### Install in a venv instead
+
+Linux and macOS:
+
+```bash
+git clone https://github.com/mleo40/retibbs_client.git
+cd retibbs_client
+python3 -m venv .venv
+.venv/bin/pip install .
+```
+
+Windows:
+
+```bat
+git clone https://github.com/mleo40/retibbs_client.git
+cd retibbs_client
+py -m venv .venv
+.venv\Scripts\pip install .
+```
+
+Start it with `.venv/bin/retibbs-gui` (Windows: `.venv\Scripts\retibbs-gui`). To update, run `git pull` and repeat
+the `pip install .` line.
+
+## Usage
+
+Start the client from the applications menu, or in a terminal:
+
+```bash
+retibbs-gui
+```
+
+Connect straight to a server:
+
+```bash
+retibbs-gui --server b40428672a09c6c100ca82c10e5d945f
+```
+
+Use another Reticulum configuration:
+
+```bash
+retibbs-gui --reticulum-config ~/.reticulum-test
+```
+
+First steps in the window:
+
+1. Connect... lists your saved BBSes and the ones heard on the network. Pick one or paste its address. Type a Name
+   if you want your own name for it, then Connect.
+2. On the first connection, pick a display name. If someone on that BBS already has it, the client asks again.
+3. Double click a board to list its messages; new ones are bold. Double click a message to read it.
+4. Double click a chat room to join it. To start one, click New room in the Chat tab, or right click Chat rooms.
+
+More:
+
+- Right click on macOS: Ctrl-click or a two finger click also works.
+- Board alerts: Settings > Board alerts, paste the LXMF address of your phone or other LXMF app, Send test. Then
+  right click a board and tick Alert me about new posts.
+- Rename a BBS: right click its name at the top of the list, or Server > Rename this BBS.
+- Commands typed in the Chat box that start with `/` go to the server's chat area, for example `/list`.
+- Admins: double click Users to load them; right click a user to make them an admin. Right click Message boards for
+  New board, or a board for Delete board.
+- Keys: Ctrl+O connect, Ctrl+D disconnect, Ctrl+N new post, F5 refresh, Ctrl+1, 2 and 3 for the tabs, Ctrl+Q
+  quit.
+
+### Offline copy
+
+Off by default; turn it on in Settings > Offline copy. The client then saves, per BBS, the board list, the message
+lists and every message you open:
+
+- While not connected, the last BBS you used is shown from the copy, marked "offline copy". You can browse boards
+  and read the messages you opened; others are marked "(not saved)". Posting, replies and chat need a connection.
+- When connected, a message you already read is shown from the copy unless it got new replies, so only new posts
+  are downloaded. Unread messages always come from the server, which marks them read.
+- Keep boards deleted on the server: a deleted board stays in the copy under Deleted on server, read only. A board
+  deleted and made again under the same name is kept apart from the old one. Right click a deleted board to remove
+  it from the copy.
+- Settings shows how much disk space the copies use. Delete offline copies removes them all. Turning the copy off
+  asks whether to delete them or keep them unused.
+
+Chat is never saved, by the server or the client.
+
+Settings and saved servers live in `~/.config/retibbs-gui/`, on Windows `C:\Users\<you>\.config\retibbs-gui\`.
+
 ## Server limits
 
 These come from the RetiBBS server, not from this client. The client marks them with a yellow Server limit note where
@@ -80,20 +203,6 @@ RetiBBS servers reply with text meant for people plus a few control packets (`CT
 `CTRL ROOM`). The client recognises the replies it needs by their wording and shows everything in the Server log. It
 also moves between the server's areas for you: opening a board sends `b`, `cb <board>`, `lm`; joining a room sends
 `/b`, `c`, `/j <room>`.
-
-## Compatibility
-
-- Python 3.10 or newer, Linux, macOS or Windows. Tested on Linux only so far.
-- Tested against the RetiBBS server at commit `7c26d2c` (January 2026)
-- Uses the same identity file as the RetiBBS Textual client, so you keep your account and admin rights
-
-## Requirements
-
-- [Reticulum](https://reticulum.network/) (`rns`) with a working configuration
-- [Rich](https://github.com/Textualize/rich) for colors in server menus
-- Tk for Python, which pip cannot install. On Debian or Ubuntu: `sudo apt install python3-tk`. On Fedora:
-  `sudo dnf install python3-tkinter`. The Python installers from python.org for macOS and Windows include Tk;
-  Homebrew's Python needs `brew install python-tk`.
 
 ## Reticulum
 
@@ -232,130 +341,6 @@ arrives, that alert is lost after a few retries.
 Back up `server_identity.pem` (the BBS address; a new one means a new address), `users.db`, `boards.db` and
 `lxmf_storage/`, all in the `server` folder.
 
-## Install
-
-The client installs as an app with [pipx](https://pipx.pypa.io/), which keeps its Python packages to itself and
-puts the `retibbs-gui` command on your PATH.
-
-1. Install pipx, Tk and git:
-
-   | System | Command |
-   |---|---|
-   | Debian, Ubuntu | `sudo apt install pipx python3-tk git` |
-   | Fedora | `sudo dnf install pipx python3-tkinter git` |
-   | macOS | Python from python.org, then `python3 -m pip install --user pipx` (or `brew install pipx python-tk`) |
-   | Windows | Python from python.org (tick "Add python.exe to PATH"), then `py -m pip install --user pipx` |
-
-   Then run `pipx ensurepath` and open a new terminal. On Windows use `py -m pipx` wherever these steps say `pipx`.
-
-2. Get the code and install it:
-
-   ```bash
-   git clone https://github.com/mleo40/retibbs_client.git
-   pipx install --editable ./retibbs_client
-   ```
-
-   `--editable` runs the code from your clone, so updating is just:
-
-   ```bash
-   git -C retibbs_client pull
-   ```
-
-   If an update changes the required packages, also run `pipx install --force --editable ./retibbs_client`.
-
-   Without a clone, `pipx install git+https://github.com/mleo40/retibbs_client.git` works too; update it with
-   `pipx upgrade retibbs-gui`.
-
-3. Linux only, optional: add RetiBBS to your applications menu, with its icon:
-
-   ```bash
-   mkdir -p ~/.local/share/applications ~/.local/share/icons/hicolor/256x256/apps
-   cp retibbs_client/docs/retibbs-gui.desktop ~/.local/share/applications/
-   cp retibbs_client/retibbs_gui/icons/retibbs-gui.png ~/.local/share/icons/hicolor/256x256/apps/
-   ```
-
-### Install in a venv instead
-
-Linux and macOS:
-
-```bash
-git clone https://github.com/mleo40/retibbs_client.git
-cd retibbs_client
-python3 -m venv .venv
-.venv/bin/pip install .
-```
-
-Windows:
-
-```bat
-git clone https://github.com/mleo40/retibbs_client.git
-cd retibbs_client
-py -m venv .venv
-.venv\Scripts\pip install .
-```
-
-Start it with `.venv/bin/retibbs-gui` (Windows: `.venv\Scripts\retibbs-gui`). To update, run `git pull` and repeat
-the `pip install .` line.
-
-## Usage
-
-Start the client from the applications menu, or in a terminal:
-
-```bash
-retibbs-gui
-```
-
-Connect straight to a server:
-
-```bash
-retibbs-gui --server b40428672a09c6c100ca82c10e5d945f
-```
-
-Use another Reticulum configuration:
-
-```bash
-retibbs-gui --reticulum-config ~/.reticulum-test
-```
-
-First steps in the window:
-
-1. Connect... lists your saved BBSes and the ones heard on the network. Pick one or paste its address. Type a Name
-   if you want your own name for it, then Connect.
-2. On the first connection, pick a display name. If someone on that BBS already has it, the client asks again.
-3. Double click a board to list its messages; new ones are bold. Double click a message to read it.
-4. Double click a chat room to join it. To start one, click New room in the Chat tab, or right click Chat rooms.
-
-More:
-
-- Right click on macOS: Ctrl-click or a two finger click also works.
-- Board alerts: Settings > Board alerts, paste the LXMF address of your phone or other LXMF app, Send test. Then
-  right click a board and tick Alert me about new posts.
-- Rename a BBS: right click its name at the top of the list, or Server > Rename this BBS.
-- Commands typed in the Chat box that start with `/` go to the server's chat area, for example `/list`.
-- Admins: double click Users to load them; right click a user to make them an admin. Right click Message boards for
-  New board, or a board for Delete board.
-- Keys: Ctrl+O connect, Ctrl+D disconnect, Ctrl+N new post, F5 refresh, Ctrl+1, 2 and 3 for the tabs, Ctrl+Q
-  quit.
-
-### Offline copy
-
-Off by default; turn it on in Settings > Offline copy. The client then saves, per BBS, the board list, the message
-lists and every message you open:
-
-- While not connected, the last BBS you used is shown from the copy, marked "offline copy". You can browse boards
-  and read the messages you opened; others are marked "(not saved)". Posting, replies and chat need a connection.
-- When connected, a message you already read is shown from the copy unless it got new replies, so only new posts
-  are downloaded. Unread messages always come from the server, which marks them read.
-- Keep boards deleted on the server: a deleted board stays in the copy under Deleted on server, read only. A board
-  deleted and made again under the same name is kept apart from the old one. Right click a deleted board to remove
-  it from the copy.
-- Settings shows how much disk space the copies use. Delete offline copies removes them all. Turning the copy off
-  asks whether to delete them or keep them unused.
-
-Chat is never saved, by the server or the client.
-
-Settings and saved servers live in `~/.config/retibbs-gui/`, on Windows `C:\Users\<you>\.config\retibbs-gui\`.
-
 ## Tests
 
 ```bash
@@ -374,10 +359,31 @@ Help > About in the client shows the version and these projects:
 - [Tabler Icons](https://tabler.io/icons) (MIT): the small icons in the window, see `retibbs_gui/icons/LICENSE`. The
   app icon, `retibbs-gui.png`, was made for this project.
 
+## Screenshots
+
+Reading a message (light theme):
+
+![Reading a message in the light theme](docs/message_light.png)
+
+Chatting in a room, as an admin with the user list loaded (dark theme):
+
+![Chatting in a room in the dark theme](docs/chat_dark.png)
+
+Writing a post that is too long for one packet, with the limit of a LoRa link:
+
+![The post dialog over its size limit](docs/post_dialog.png)
+
+Settings, with the address for board alerts:
+
+![The settings dialog](docs/settings_dialog.png)
+
+Help > About, with the version and credits:
+
 ![The About page](docs/about.png)
 
 ## Revision history
 
+- 0.8.1: README puts installing and using the client before running a server, screenshots at the end
 - 0.8.0: Installs as an app with pipx; app icon and Linux menu entry
 - 0.7.1: Settings shows the disk space the offline copies use
 - 0.7.0: Optional offline copy of each BBS, with deleted boards kept if you choose; a message of the day board made
