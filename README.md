@@ -234,9 +234,49 @@ Back up `server_identity.pem` (the BBS address; a new one means a new address), 
 
 ## Install
 
-Get the code with git, or download it as a zip from GitHub (Code > Download ZIP) and unpack it.
+The client installs as an app with [pipx](https://pipx.pypa.io/), which keeps its Python packages to itself and
+puts the `retibbs-gui` command on your PATH.
 
-Linux and macOS, in a terminal:
+1. Install pipx, Tk and git:
+
+   | System | Command |
+   |---|---|
+   | Debian, Ubuntu | `sudo apt install pipx python3-tk git` |
+   | Fedora | `sudo dnf install pipx python3-tkinter git` |
+   | macOS | Python from python.org, then `python3 -m pip install --user pipx` (or `brew install pipx python-tk`) |
+   | Windows | Python from python.org (tick "Add python.exe to PATH"), then `py -m pip install --user pipx` |
+
+   Then run `pipx ensurepath` and open a new terminal. On Windows use `py -m pipx` wherever these steps say `pipx`.
+
+2. Get the code and install it:
+
+   ```bash
+   git clone https://github.com/mleo40/retibbs_client.git
+   pipx install --editable ./retibbs_client
+   ```
+
+   `--editable` runs the code from your clone, so updating is just:
+
+   ```bash
+   git -C retibbs_client pull
+   ```
+
+   If an update changes the required packages, also run `pipx install --force --editable ./retibbs_client`.
+
+   Without a clone, `pipx install git+https://github.com/mleo40/retibbs_client.git` works too; update it with
+   `pipx upgrade retibbs-gui`.
+
+3. Linux only, optional: add RetiBBS to your applications menu, with its icon:
+
+   ```bash
+   mkdir -p ~/.local/share/applications ~/.local/share/icons/hicolor/256x256/apps
+   cp retibbs_client/docs/retibbs-gui.desktop ~/.local/share/applications/
+   cp retibbs_client/retibbs_gui/icons/retibbs-gui.png ~/.local/share/icons/hicolor/256x256/apps/
+   ```
+
+### Install in a venv instead
+
+Linux and macOS:
 
 ```bash
 git clone https://github.com/mleo40/retibbs_client.git
@@ -245,8 +285,7 @@ python3 -m venv .venv
 .venv/bin/pip install .
 ```
 
-Windows, in PowerShell or Command Prompt, with Python from python.org (tick "Add python.exe to PATH" when
-installing):
+Windows:
 
 ```bat
 git clone https://github.com/mleo40/retibbs_client.git
@@ -255,32 +294,27 @@ py -m venv .venv
 .venv\Scripts\pip install .
 ```
 
-To update later, run `git pull` (or download the zip again) and repeat the `pip install .` line.
+Start it with `.venv/bin/retibbs-gui` (Windows: `.venv\Scripts\retibbs-gui`). To update, run `git pull` and repeat
+the `pip install .` line.
 
 ## Usage
 
-Start the client, from the `retibbs_client` folder. Linux and macOS:
+Start the client from the applications menu, or in a terminal:
 
 ```bash
-.venv/bin/retibbs-gui
+retibbs-gui
 ```
 
-Windows:
-
-```bat
-.venv\Scripts\retibbs-gui
-```
-
-The options below work the same way on every system. Connect straight to a server:
+Connect straight to a server:
 
 ```bash
-.venv/bin/retibbs-gui --server b40428672a09c6c100ca82c10e5d945f
+retibbs-gui --server b40428672a09c6c100ca82c10e5d945f
 ```
 
 Use another Reticulum configuration:
 
 ```bash
-.venv/bin/retibbs-gui --reticulum-config ~/.reticulum-test
+retibbs-gui --reticulum-config ~/.reticulum-test
 ```
 
 First steps in the window:
@@ -337,12 +371,14 @@ Help > About in the client shows the version and these projects:
 - [partyline](https://github.com/RFnexus/partyline) by RFnexus (public domain): theme, palettes and layout
 - [Reticulum](https://reticulum.network) by Mark Qvist (Reticulum License): the network stack
 - [Rich](https://github.com/Textualize/rich) (MIT): colors in server text
-- [Tabler Icons](https://tabler.io/icons) (MIT): icons, see `retibbs_gui/icons/LICENSE`
+- [Tabler Icons](https://tabler.io/icons) (MIT): the small icons in the window, see `retibbs_gui/icons/LICENSE`. The
+  app icon, `retibbs-gui.png`, was made for this project.
 
 ![The About page](docs/about.png)
 
 ## Revision history
 
+- 0.8.0: Installs as an app with pipx; app icon and Linux menu entry
 - 0.7.1: Settings shows the disk space the offline copies use
 - 0.7.0: Optional offline copy of each BBS, with deleted boards kept if you choose; a message of the day board made
   again is shown without reconnecting

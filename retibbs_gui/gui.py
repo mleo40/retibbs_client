@@ -548,6 +548,7 @@ class App:
                 pass
         icon_names = ("server", "channel", "channel_locked", "user_idle", "rns_online", "rns_off")
         self.icons = {name: load_icon(name) for name in icon_names}
+        root.iconphoto(True, load_icon("retibbs-gui"))  # window, taskbar and dock icon
         # copies of the named fonts, so the families resolve to real fonts
         self.text_font = tkfont.nametofont("TkDefaultFont").copy()
         self.fixed_font = tkfont.nametofont("TkFixedFont").copy()

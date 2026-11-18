@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=RetiBBS
+GenericName=BBS client for Reticulum
+Comment=Message boards and chat over Reticulum
+Exec=retibbs-gui
+Icon=retibbs-gui
+Terminal=false
+Categories=Network;Chat;
+StartupWMClass=Retibbs-gui
