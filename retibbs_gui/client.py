@@ -68,6 +68,7 @@ class Client:
         self.room = None
         self.user_name = None
         self.is_admin = False
+        self.alert_address = None  # None until the server tells us; "" if not set
         self.rtt = None
         self._ping_sent = 0.0
         self._steps = deque()
@@ -172,6 +173,26 @@ class Client:
     def fits(self, command):
         link = self.link
         return link is None or len(command.encode("utf-8")) <= link.mdu
+
+    @property
+    def packet_limit(self):
+        """Bytes in one packet on this link: the size limit for every command, post and reply."""
+        return self.link.mdu if self.link else None
+
+    def chat_limit(self):
+        """Bytes left for a chat message.
+
+        The server sends each chat line to the others as one packet, "[room] Name: text", with "[" escaped, so the
+        room and name use up part of the packet.
+        """
+        if self.link is None:
+            return None
+        name = max(len((self.user_name or "").encode("utf-8")), len("(You)"))
+        return self.link.mdu - len(f"[{self.room or ''}] : ".encode("utf-8")) - name - 8
+
+    @staticmethod
+    def chat_cost(text):
+        return len(text.encode("utf-8")) + 2 * text.count("[")
 
     def planned_area(self):
         with self._lock:
@@ -278,5 +299,5 @@ class Client:
             elif event[0] == "left":
                 self.room = None
             elif event[0] == "hello":
-                self.user_name, self.is_admin = event[1], event[2]
+                self.user_name, self.is_admin, self.alert_address = event[1], event[2], event[3]
             self.events.put(event)

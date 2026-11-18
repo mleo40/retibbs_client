@@ -4,7 +4,7 @@ import json
 import os
 
 CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "retibbs-gui")
-DEFAULTS = {"theme": "light", "font_size": 10, "window": "", "sash": 0, "display_name": ""}
+DEFAULTS = {"theme": "light", "font_size": 10, "window": "", "sash": 0, "display_name": "", "alert_address": ""}
 
 
 class JsonFile(dict):
@@ -30,5 +30,5 @@ def settings():
 
 
 def servers():
-    """Saved servers: {hash: {"name": ...}}."""
+    """Saved servers: {hash: {"name": ..., "custom": bool}}. A custom name is kept when the server announces another."""
     return JsonFile("servers.json")

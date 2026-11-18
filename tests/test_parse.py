@@ -56,12 +56,33 @@ class ParseTests(unittest.TestCase):
 
     def test_hello_and_markup(self):
         events = classify("Hello, Mike.\nYou have ADMIN rights.")
-        self.assertEqual(events[0], ("hello", "Mike", True))
+        self.assertEqual(events[0], ("hello", "Mike", True, ""))
+        events = classify("Hello, Ann.\nYour LXMF destination address is: 0123456789abcdef0123456789abcdef")
+        self.assertEqual(events[0], ("hello", "Ann", False, "0123456789abcdef0123456789abcdef"))
         self.assertEqual(plain("[bold red]Hi[/] \\[x]"), "Hi [x]")
         runs = styled_runs("[bold red]Hi[/] there")
         self.assertEqual(runs[0][0], "Hi")
         self.assertTrue(runs[0][2])
         self.assertIsNotNone(runs[0][1])
+
+    def test_watchlist_and_users(self):
+        self.assertEqual(classify("Your watchlist:\nnets\nswap"), [("watchlist", ["nets", "swap"])])
+        self.assertEqual(classify("You are not watching any boards."), [("watchlist", [])])
+        text = "Users:\n- " + "a" * 32 + " | Dana  (Admin)\n- " + "b" * 32 + " | N/A \n"
+        [(kind, users)] = classify(text)
+        self.assertEqual(kind, "users")
+        self.assertEqual(users[0], {"hash": "a" * 32, "name": "Dana", "admin": True})
+        self.assertEqual(users[1], {"hash": "b" * 32, "name": "", "admin": False})
+
+    def test_notices(self):
+        events = classify("Board 'nets' added to your watchlist.", "Message Boards")
+        self.assertIn(("watch_changed", "nets", True), events)
+        self.assertIn(("notice", "info", "Board 'nets' added to your watchlist."), events)
+        events = classify("ERROR: The name 'Sam' is already taken.", "Main Menu")
+        self.assertIn(("notice", "error", "ERROR: The name 'Sam' is already taken."), events)
+        self.assertIn(("alert_set",), classify("Destination address updated successfully.", "Main Menu"))
+        self.assertIn(("notice", "info", "Board 'nets' is ready."), classify("Board 'nets' is ready."))
+        self.assertEqual([e[0] for e in classify("You are already in the boards area.")], ["text"])
 
 
 if __name__ == "__main__":

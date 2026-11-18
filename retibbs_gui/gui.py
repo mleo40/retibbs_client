@@ -1,8 +1,14 @@
-"""Tk desktop client for RetiBBS with partyline's look and layout."""
+"""Tk desktop client for RetiBBS with partyline's look and layout.
+
+Layout: the toolbar only handles the connection. The tree on the right lists boards, messages, chat rooms and (for
+admins) users. The tabs on the left are the three things you can look at, each with its own buttons in its header:
+Chat (the room you are in), Message (the post you opened) and Server log (raw server text and typed commands).
+"""
 
 import argparse
 import os
 import queue
+import re
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -18,7 +24,26 @@ from .theme import PALETTES, apply_theme
 APP_TITLE = "RetiBBS"
 ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 REFRESH_MS = 100
-ROOT_ID, BOARDS_ID, ROOMS_ID = "server", "boards", "rooms"
+NOTICE_MS = 9000
+ROOT_ID, BOARDS_ID, ROOMS_ID, USERS_ID, OFFLINE_ID = "server", "boards", "rooms", "users", "offline"
+CHAT_TAB, MESSAGE_TAB, LOG_TAB = 0, 1, 2
+BOARD_NAME = re.compile(r"[A-Za-z0-9]{3,20}")
+LXMF_ADDRESS = re.compile(r"[0-9a-f]{32}")
+
+CHAT_LIMIT_TEXT = (
+    "Chat is live only. The server does not store it, so you see only what is said while you are in the room. "
+    "Opening the message boards takes you out of the room."
+)
+POST_LIMIT_TEXT = (
+    "Each post or reply must fit in one Reticulum packet, topic included: a few hundred bytes over LoRa or packet "
+    "radio, far more over TCP. Longer text is refused. "
+    "Posts cannot be edited or deleted after sending, and files cannot be attached."
+)
+ALERT_LIMIT_TEXT = (
+    "The server sends alerts as LXMF messages to another app, such as Sideband, Columba, MeshChat or NomadNet; "
+    "this client cannot receive them. The server cannot remove an address, only replace it. To stop alerts, "
+    "turn them off board by board."
+)
 
 
 def load_icon(name):
@@ -44,6 +69,19 @@ def load_identity():
     return identity
 
 
+def clean_hash(text):
+    return text.strip().strip("<>").replace(":", "").lower()
+
+
+def limit_note(parent, text):
+    """A server limit, shown the same way everywhere: a tinted strip starting with "Server limit"."""
+    frame = ttk.Frame(parent, style="Limit.TFrame", padding=(8, 4))
+    label = ttk.Label(frame, text="ⓘ  Server limit: " + text, style="Limit.TLabel", justify="left")
+    label.pack(fill="x")
+    frame.bind("<Configure>", lambda event: label.configure(wraplength=max(200, event.width - 20)))
+    return frame
+
+
 # dialogs
 class Dialog(tk.Toplevel):
     def __init__(self, parent, title):
@@ -59,7 +97,8 @@ class Dialog(tk.Toplevel):
     def buttons(self, ok_text="OK"):
         row = ttk.Frame(self.body)
         row.grid(row=99, column=0, columnspan=3, sticky="e", pady=(10, 0))
-        ttk.Button(row, text=ok_text, command=self.ok).pack(side="right")
+        self.ok_button = ttk.Button(row, text=ok_text, command=self.ok)
+        self.ok_button.pack(side="right")
         ttk.Button(row, text="Cancel", command=self.cancel).pack(side="right", padx=(0, 4))
 
     def show(self):
@@ -82,38 +121,48 @@ class ConnectDialog(Dialog):
         super().__init__(app.root, "Connect to a BBS")
         self.app = app
         body = self.body
-        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
         body.rowconfigure(0, weight=1)
         self.notebook = ttk.Notebook(body)
         self.notebook.grid(row=0, column=0, columnspan=3, sticky="nsew")
 
-        self.saved = self.make_tree(("name", "hash"), ("Name", "Destination hash"))
-        self.discovered = self.make_tree(("name", "hash", "hops", "seen"), ("Name", "Destination hash", "Hops", "Last seen"))
-        self.notebook.add(self.saved.master, text="Favourites")
-        self.notebook.add(self.discovered.master, text="Discovered")
+        self.saved = self.make_tree(("name", "hash"), ("Name", "Address"))
+        self.discovered = self.make_tree(
+            ("name", "hash", "hops", "seen"), ("Announced name", "Address", "Hops", "Last seen")
+        )
+        self.notebook.add(self.saved.master, text="My BBS list")
+        self.notebook.add(self.discovered.master, text="Heard on the network")
 
-        row = ttk.Frame(body)
-        row.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        ttk.Label(row, text="Hash:").pack(side="left")
+        ttk.Label(body, text="Name").grid(row=1, column=0, sticky="w", pady=(10, 2))
+        self.name_var = tk.StringVar()
+        ttk.Entry(body, textvariable=self.name_var).grid(row=1, column=1, sticky="ew", padx=4, pady=(10, 2))
+        ttk.Label(body, text="Address").grid(row=2, column=0, sticky="w", pady=2)
         self.hash_var = tk.StringVar()
-        entry = ttk.Entry(row, textvariable=self.hash_var, width=36)
-        entry.pack(side="left", fill="x", expand=True, padx=4)
+        entry = ttk.Entry(body, textvariable=self.hash_var, width=36)
+        entry.grid(row=2, column=1, sticky="ew", padx=4, pady=2)
         entry.bind("<Return>", lambda event: self.ok())
-        ttk.Button(row, text="Save", command=self.save).pack(side="left")
-        ttk.Button(row, text="Remove", command=self.remove).pack(side="left", padx=(4, 0))
+        side = ttk.Frame(body)
+        side.grid(row=1, column=2, rowspan=2, sticky="n", pady=(10, 0))
+        ttk.Button(side, text="Save to my list", command=self.save).pack(fill="x")
+        ttk.Button(side, text="Remove", command=self.remove).pack(fill="x", pady=(4, 0))
+        ttk.Label(
+            body, style="Muted.TLabel", wraplength=520, justify="left",
+            text="Name is how the BBS shows in your list and window. Leave it empty to use the name the server "
+                 "announces. Connecting saves the BBS to your list.",
+        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
         self.buttons("Connect")
         self.fill_saved()
         self.tick()
         if not self.app.servers:
             self.notebook.select(1)
-        self.geometry("640x380")
+        self.geometry("660x430")
 
     def make_tree(self, columns, headings):
         frame = ttk.Frame(self.notebook)
         tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
         for column, heading in zip(columns, headings):
             tree.heading(column, text=heading)
-            tree.column(column, width=80 if column in ("hops",) else 160, stretch=column != "hops")
+            tree.column(column, width=60 if column == "hops" else 170, stretch=column != "hops")
         tree.pack(side="left", fill="both", expand=True)
         ttk.Scrollbar(frame, command=tree.yview).pack(side="right", fill="y")
         tree.bind("<<TreeviewSelect>>", lambda event: self.picked(tree))
@@ -123,7 +172,10 @@ class ConnectDialog(Dialog):
     def picked(self, tree):
         selection = tree.selection()
         if selection:
-            self.hash_var.set(selection[0])
+            hash_hex = selection[0]
+            self.hash_var.set(hash_hex)
+            saved = self.app.servers.get(hash_hex, {})
+            self.name_var.set(saved.get("name", "") if saved.get("custom") else "")
 
     def fill_saved(self):
         self.saved.delete(*self.saved.get_children())
@@ -143,20 +195,20 @@ class ConnectDialog(Dialog):
             self.discovered.selection_set(selected[0])
         self.after(2000, self.tick)
 
-    def clean_hash(self):
-        return self.hash_var.get().strip().strip("<>").replace(":", "").lower()
+    def checked_hash(self, title):
+        hash_hex = clean_hash(self.hash_var.get())
+        if len(hash_hex) != 32:
+            messagebox.showerror(title, "Enter or pick a 32 character address.", parent=self)
+            return None
+        return hash_hex
 
     def save(self):
-        hash_hex = self.clean_hash()
-        if len(hash_hex) != 32:
-            messagebox.showerror("Save", "Enter or pick a 32 character destination hash.", parent=self)
-            return
-        known = self.app.discovery.snapshot().get(hash_hex, {})
-        saved_name = self.app.servers.get(hash_hex, {}).get("name")
-        self.app.servers[hash_hex] = {"name": known.get("name") or saved_name or hash_hex}
-        self.app.servers.save()
-        self.fill_saved()
-        self.notebook.select(0)
+        hash_hex = self.checked_hash("Save")
+        if hash_hex:
+            self.app.remember_server(hash_hex, self.name_var.get().strip())
+            self.fill_saved()
+            self.notebook.select(0)
+            self.saved.selection_set(hash_hex)
 
     def remove(self):
         selection = self.saved.selection()
@@ -166,42 +218,45 @@ class ConnectDialog(Dialog):
             self.fill_saved()
 
     def ok(self):
-        hash_hex = self.clean_hash()
-        if len(hash_hex) != 32:
-            messagebox.showerror("Connect", "Enter or pick a 32 character destination hash.", parent=self)
-            return
-        self.result = hash_hex
-        self.destroy()
+        hash_hex = self.checked_hash("Connect")
+        if hash_hex:
+            self.app.remember_server(hash_hex, self.name_var.get().strip())
+            self.result = hash_hex
+            self.destroy()
 
 
 class PostDialog(Dialog):
     def __init__(self, app, boards, board=None, reply_to=None):
-        title = f"Reply to message {reply_to['id']}" if reply_to else "New post"
+        title = f"Reply to {reply_to['author']}" if reply_to else "New post"
         super().__init__(app.root, title)
         self.app = app
         self.reply_to = reply_to
         body = self.body
         body.columnconfigure(1, weight=1)
-        body.rowconfigure(2, weight=1)
+        body.rowconfigure(3, weight=1)
+        limit_note(body, POST_LIMIT_TEXT).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         if reply_to:
-            ttk.Label(body, text=f"Re: {reply_to['topic']}").grid(row=0, column=0, columnspan=2, sticky="w")
+            ttk.Label(body, text=f"Re: {reply_to['topic']}  ({reply_to['board']})", font=app.bold_font).grid(
+                row=1, column=0, columnspan=2, sticky="w"
+            )
         else:
-            ttk.Label(body, text="Board").grid(row=0, column=0, sticky="w")
+            ttk.Label(body, text="Board").grid(row=1, column=0, sticky="w")
             self.board = ttk.Combobox(body, values=boards, state="readonly")
-            self.board.grid(row=0, column=1, sticky="ew", pady=2)
+            self.board.grid(row=1, column=1, sticky="ew", pady=2)
             if board in boards:
                 self.board.set(board)
             elif boards:
                 self.board.set(boards[0])
-            ttk.Label(body, text="Topic").grid(row=1, column=0, sticky="w")
+            ttk.Label(body, text="Topic").grid(row=2, column=0, sticky="w")
             self.topic = ttk.Entry(body)
-            self.topic.grid(row=1, column=1, sticky="ew", pady=2)
+            self.topic.grid(row=2, column=1, sticky="ew", pady=2)
+            self.topic.bind("<KeyRelease>", lambda event: self.update_count())
             self.topic.focus_set()
-        self.text = tk.Text(body, width=60, height=10, wrap="word", font=app.text_font)
-        self.text.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
+        self.text = tk.Text(body, width=64, height=10, wrap="word", font=app.text_font)
+        self.text.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(6, 0))
         apply_theme(app.root, app.palette, texts=[self.text])
-        self.count = ttk.Label(body, foreground=app.palette["muted"])
-        self.count.grid(row=3, column=0, columnspan=2, sticky="w")
+        self.count = ttk.Label(body)
+        self.count.grid(row=4, column=0, columnspan=2, sticky="w", pady=(2, 0))
         self.text.bind("<KeyRelease>", lambda event: self.update_count())
         if reply_to:
             self.text.focus_set()
@@ -217,10 +272,15 @@ class PostDialog(Dialog):
 
     def update_count(self):
         command, _ = self.command()
-        link = self.app.client.link if self.app.client else None
-        limit = link.mdu if link else None
+        limit = self.app.client.packet_limit if self.app.client else None
         used = len(command.encode("utf-8"))
-        self.count.configure(text=f"{used} of {limit} bytes" if limit else f"{used} bytes")
+        if limit is None:
+            self.count.configure(text=f"{used} bytes", style="Muted.TLabel")
+            return
+        over = used > limit
+        text = f"{used} of {limit} bytes used" + (f", {used - limit} too many" if over else f", {limit - used} left")
+        self.count.configure(text=text, style="Over.TLabel" if over else "Muted.TLabel")
+        self.ok_button.state(["disabled" if over else "!disabled"])
 
     def ok(self):
         command, content = self.command()
@@ -236,13 +296,9 @@ class PostDialog(Dialog):
                 messagebox.showerror(self.title(), "The topic cannot contain '|'.", parent=self)
                 return
         if not self.app.client.fits(command):
-            messagebox.showerror(
-                self.title(),
-                "Too long. RetiBBS takes each post as a single Reticulum packet, so keep it under the byte limit shown.",
-                parent=self,
-            )
+            messagebox.showerror(self.title(), "Too long to fit in one packet. Shorten it and try again.", parent=self)
             return
-        self.result = (None if self.reply_to else self.board.get(), command)
+        self.result = (self.reply_to["board"] if self.reply_to else self.board.get(), command)
         self.destroy()
 
 
@@ -251,23 +307,80 @@ class SettingsDialog(Dialog):
         super().__init__(app.root, "Settings")
         self.app = app
         body = self.body
-        ttk.Label(body, text="Display name").grid(row=0, column=0, sticky="w")
+        body.columnconfigure(0, weight=1)
+
+        profile = ttk.LabelFrame(body, text="Profile", padding=8)
+        profile.grid(row=0, column=0, sticky="ew")
+        profile.columnconfigure(1, weight=1)
+        ttk.Label(profile, text="Display name").grid(row=0, column=0, sticky="w")
         self.name_var = tk.StringVar(value=app.settings["display_name"])
-        ttk.Entry(body, textvariable=self.name_var, width=30).grid(row=0, column=1, sticky="ew", pady=2)
-        ttk.Label(body, text="Font size").grid(row=1, column=0, sticky="w")
+        ttk.Entry(profile, textvariable=self.name_var, width=32).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        ttk.Label(
+            profile, style="Muted.TLabel", wraplength=440, justify="left",
+            text="Sent to every BBS you connect to. Each BBS allows a name only once.",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        alerts = ttk.LabelFrame(body, text="Board alerts", padding=8)
+        alerts.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        alerts.columnconfigure(1, weight=1)
+        ttk.Label(alerts, text="LXMF address").grid(row=0, column=0, sticky="w")
+        self.alert_var = tk.StringVar(value=app.settings["alert_address"])
+        ttk.Entry(alerts, textvariable=self.alert_var, width=34).grid(row=0, column=1, sticky="ew", padx=(8, 4))
+        self.test_button = ttk.Button(alerts, text="Send test", command=self.test)
+        self.test_button.grid(row=0, column=2)
+        if not (app.client and app.client.connected):
+            self.test_button.state(["disabled"])
+        ttk.Label(
+            alerts, style="Muted.TLabel", wraplength=440, justify="left",
+            text="Where the BBS tells you about new posts on boards you watch, and replies to your posts. Turn alerts "
+                 "on per board: right click a board.",
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 6))
+        limit_note(alerts, ALERT_LIMIT_TEXT).grid(row=2, column=0, columnspan=3, sticky="ew")
+
+        looks = ttk.LabelFrame(body, text="Appearance", padding=8)
+        looks.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(looks, text="Font size").grid(row=0, column=0, sticky="w")
         self.size_var = tk.IntVar(value=app.settings["font_size"])
-        ttk.Spinbox(body, from_=8, to=20, textvariable=self.size_var, width=5).grid(row=1, column=1, sticky="w", pady=2)
+        ttk.Spinbox(looks, from_=8, to=20, textvariable=self.size_var, width=5).grid(row=0, column=1, sticky="w", padx=8)
         self.dark_var = tk.BooleanVar(value=app.settings["theme"] == "dark")
-        ttk.Checkbutton(body, text="Dark mode", variable=self.dark_var).grid(row=2, column=1, sticky="w", pady=2)
-        ttk.Label(body, text="Identity").grid(row=3, column=0, sticky="w")
-        ttk.Label(body, text=RNS.prettyhexrep(app.identity.hash)).grid(row=3, column=1, sticky="w")
+        ttk.Checkbutton(looks, text="Dark mode", variable=self.dark_var).grid(row=0, column=2, sticky="w", padx=(12, 0))
+
+        who = ttk.LabelFrame(body, text="Your BBS identity", padding=8)
+        who.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(who, text=app.identity.hash.hex()).pack(side="left")
+        ttk.Button(who, text="Copy", command=lambda: app.copy(app.identity.hash.hex())).pack(side="right")
         self.buttons()
 
+    def address(self):
+        address = clean_hash(self.alert_var.get())
+        if address and not LXMF_ADDRESS.fullmatch(address):
+            messagebox.showerror("Settings", "An LXMF address is 32 characters, 0-9 and a-f.", parent=self)
+            return None
+        return address
+
+    def test(self):
+        address = self.address()
+        if address is None:
+            return
+        if not address:
+            messagebox.showerror("Settings", "Enter your LXMF address first.", parent=self)
+            return
+        self.app.send_alert_test(address)
+
     def ok(self):
+        address = self.address()
+        if address is None:
+            return
         settings = self.app.settings
         new_name = self.name_var.get().strip()
-        changed_name = new_name and new_name != settings["display_name"]
+        commands = []
+        if new_name and new_name != settings["display_name"]:
+            commands.append(f"n {new_name}")
+        client = self.app.client
+        if address and (address != settings["alert_address"] or (client and client.alert_address != address)):
+            commands.append(f"d {address}")
         settings["display_name"] = new_name
+        settings["alert_address"] = address
         try:
             settings["font_size"] = max(8, min(20, int(self.size_var.get())))
         except (tk.TclError, ValueError):
@@ -276,9 +389,9 @@ class SettingsDialog(Dialog):
         settings.save()
         self.app.dark_var.set(settings["theme"] == "dark")
         self.app.apply_settings()
-        if changed_name and self.app.client and self.app.client.connected:
-            self.app.navigate(MAIN, f"n {new_name}")
         self.destroy()
+        if commands and client and client.connected:
+            self.app.navigate(MAIN, *commands, "h")
 
 
 # main window
@@ -292,17 +405,15 @@ class App:
         self.client = None
         self.server_name = None
         self.server_hash = None
-        self.boards = []
-        self.messages = {}  # board -> (page, pages, [message])
-        self.unread = {}  # board -> set of ids
-        self.rooms = []
-        self.reading = None
+        self.reset_state()
         self.started = False
+        self.quiet_alert = False
+        self.notice_job = None
         self.palette = PALETTES.get(settings["theme"], PALETTES["light"])
         self.color_tags = set()
 
         root.title(APP_TITLE)
-        root.minsize(720, 440)
+        root.minsize(760, 460)
         if settings["window"]:
             try:
                 root.geometry(settings["window"])
@@ -322,13 +433,23 @@ class App:
 
         self.build_menu()
         self.build_toolbar()
+        self.build_notice()
         self.build_statusbar()
         self.build_body()
         self.apply_settings()
-        self.chat_log("Welcome. Server > Connect... to pick a BBS.", "sys")
         self.set_connected_widgets(False)
+        self.offline()
         root.protocol("WM_DELETE_WINDOW", self.quit)
         root.after(REFRESH_MS, self.refresh)
+
+    def reset_state(self):
+        self.boards = []
+        self.messages = {}  # board -> (page, pages, [message])
+        self.unread = {}  # board -> set of ids
+        self.watched = set()
+        self.rooms = []
+        self.users = None  # None until an admin loads them
+        self.reading = None
 
     # building
     def build_menu(self):
@@ -337,58 +458,70 @@ class App:
         server_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Server", menu=server_menu)
         server_menu.add_command(label="Connect...", accelerator="Ctrl+O", command=self.connect_dialog)
+        server_menu.add_command(label="Rename this BBS...", command=self.rename_server)
         server_menu.add_command(label="Disconnect", accelerator="Ctrl+D", command=self.disconnect)
+        server_menu.add_separator()
+        server_menu.add_command(label="Settings...", command=self.settings_dialog)
         server_menu.add_separator()
         server_menu.add_command(label="Quit", accelerator="Ctrl+Q", command=self.quit)
 
         bbs_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="BBS", menu=bbs_menu)
-        bbs_menu.add_command(label="Message boards", command=self.open_boards)
-        bbs_menu.add_command(label="Chat rooms", command=self.open_rooms)
         bbs_menu.add_command(label="New post...", accelerator="Ctrl+N", command=self.new_post)
+        bbs_menu.add_command(label="Refresh", accelerator="F5", command=self.refresh_view)
         bbs_menu.add_separator()
-        bbs_menu.add_command(label="Watchlist", command=lambda: self.navigate(BOARDS, "wl", console=True))
-        bbs_menu.add_command(label="Who am I", command=lambda: self.navigate(MAIN, "h", console=True))
+        bbs_menu.add_command(label="Users (admins)", command=self.load_users)
+        bbs_menu.add_command(label="Check my account", command=lambda: self.navigate(MAIN, "h", log=True))
         bbs_menu.add_command(label="Server help", command=self.server_help)
 
-        configure_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Configure", menu=configure_menu)
-        configure_menu.add_command(label="Settings...", command=lambda: SettingsDialog(self).show())
+        view_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="View", menu=view_menu)
+        view_menu.add_command(label="Chat", accelerator="Ctrl+1", command=lambda: self.notebook.select(CHAT_TAB))
+        view_menu.add_command(label="Message", accelerator="Ctrl+2", command=lambda: self.notebook.select(MESSAGE_TAB))
+        view_menu.add_command(label="Server log", accelerator="Ctrl+3", command=lambda: self.notebook.select(LOG_TAB))
+        view_menu.add_separator()
         self.dark_var = tk.BooleanVar(value=self.settings["theme"] == "dark")
-        configure_menu.add_checkbutton(label="Dark Mode", variable=self.dark_var, command=self.toggle_theme)
+        view_menu.add_checkbutton(label="Dark mode", variable=self.dark_var, command=self.toggle_theme)
 
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="Server limits", command=self.show_limits)
         help_menu.add_command(label="About", command=self.about)
 
-        self.menus = [menubar, server_menu, bbs_menu, configure_menu, help_menu]
-        self.root.bind("<Control-o>", lambda event: self.connect_dialog())
-        self.root.bind("<Control-d>", lambda event: self.disconnect())
-        self.root.bind("<Control-q>", lambda event: self.quit())
-        self.root.bind("<Control-n>", lambda event: self.new_post())
+        self.menus = [menubar, server_menu, bbs_menu, view_menu, help_menu]
+        bindings = {
+            "<Control-o>": self.connect_dialog, "<Control-d>": self.disconnect, "<Control-q>": self.quit,
+            "<Control-n>": self.new_post, "<F5>": self.refresh_view,
+            "<Control-Key-1>": lambda: self.notebook.select(CHAT_TAB),
+            "<Control-Key-2>": lambda: self.notebook.select(MESSAGE_TAB),
+            "<Control-Key-3>": lambda: self.notebook.select(LOG_TAB),
+        }
+        for sequence, command in bindings.items():
+            self.root.bind(sequence, lambda event, command=command: command())
 
     def build_toolbar(self):
-        toolbar = ttk.Frame(self.root, padding=(4, 3))
+        """Connection only. What you can do with boards, messages and rooms is in each tab's header."""
+        toolbar = ttk.Frame(self.root, padding=(6, 4))
         toolbar.pack(fill="x")
-        ttk.Button(toolbar, text="Connect", command=self.connect_dialog).pack(side="left")
+        self.toolbar = toolbar
+        ttk.Button(toolbar, text="Connect...", command=self.connect_dialog).pack(side="left")
         self.disconnect_button = ttk.Button(toolbar, text="Disconnect", command=self.disconnect)
-        self.disconnect_button.pack(side="left", padx=(2, 0))
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=6)
-        self.online_buttons = []
-        for text, command in (
-            ("Boards", self.open_boards),
-            ("Chat", self.open_rooms),
-            ("New post", self.new_post),
-            ("Reply", self.reply),
-            ("Refresh", self.refresh_view),
-        ):
-            button = ttk.Button(toolbar, text=text, command=command)
-            button.pack(side="left", padx=(0, 2))
-            self.online_buttons.append(button)
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Button(toolbar, text="Settings", command=lambda: SettingsDialog(self).show()).pack(side="left")
-        self.where_var = tk.StringVar()
-        ttk.Label(toolbar, textvariable=self.where_var).pack(side="right", padx=6)
+        self.disconnect_button.pack(side="left", padx=(4, 0))
+        self.server_label = ttk.Label(toolbar, font=self.title_font)
+        self.server_label.pack(side="left", padx=(14, 0))
+        self.account_label = ttk.Label(toolbar, style="Muted.TLabel")
+        self.account_label.pack(side="left", padx=(8, 0))
+        ttk.Button(toolbar, text="Settings", command=self.settings_dialog).pack(side="right")
+
+    def build_notice(self):
+        """A strip under the toolbar for the server's answers: errors and confirmations."""
+        self.notice_frame = ttk.Frame(self.root, padding=(8, 4))
+        self.notice_label = ttk.Label(self.notice_frame)
+        self.notice_label.pack(side="left", fill="x", expand=True)
+        close = ttk.Label(self.notice_frame, text="✕", cursor="hand2")
+        close.pack(side="right")
+        close.bind("<Button-1>", lambda event: self.hide_notice())
+        self.notice_close = close
 
     def build_statusbar(self):
         bar = ttk.Frame(self.root, padding=(6, 2))
@@ -399,6 +532,8 @@ class App:
         self.rns_label.pack(side="right")
         self.rtt_var = tk.StringVar()
         ttk.Label(bar, textvariable=self.rtt_var).pack(side="right", padx=8)
+        self.alert_var = tk.StringVar()
+        ttk.Label(bar, textvariable=self.alert_var).pack(side="right", padx=8)
 
     def build_body(self):
         pane = ttk.PanedWindow(self.root, orient="horizontal")
@@ -412,41 +547,84 @@ class App:
 
         self.notebook = ttk.Notebook(left)
         self.notebook.pack(fill="both", expand=True)
-        self.chat, self.chat_entry = self.text_tab("Chat", self.send_chat, "Send")
-        self.reader, _ = self.text_tab("Reader", None, None)
-        self.console, self.console_entry = self.text_tab("Console", self.send_console, "Send")
-        self.reader_actions = ttk.Frame(self.reader.master)
-        self.reader_actions.pack(fill="x", pady=(3, 0), before=self.reader)
-        ttk.Button(self.reader_actions, text="Reply", command=self.reply).pack(side="left")
-        self.reader_title = ttk.Label(self.reader_actions)
-        self.reader_title.pack(side="left", padx=8)
+        self.build_chat_tab()
+        self.build_message_tab()
+        self.build_log_tab()
 
-        self.tree = ttk.Treeview(right, show="tree", selectmode="browse")
+        tree_frame = ttk.Frame(right)
+        tree_frame.pack(fill="both", expand=True)
+        self.tree = ttk.Treeview(tree_frame, show="tree", selectmode="browse")
         self.tree.pack(side="left", fill="both", expand=True)
-        ttk.Scrollbar(right, command=self.tree.yview).pack(side="right", fill="y")
+        ttk.Scrollbar(tree_frame, command=self.tree.yview).pack(side="right", fill="y")
+        ttk.Label(right, text="Double click to open. Right click for more.", style="Muted.TLabel").pack(
+            anchor="w", pady=(3, 0)
+        )
         self.tree.tag_configure("self", font=self.bold_font)
         self.tree.tag_configure("unread", font=self.bold_font)
         self.tree.bind("<Double-1>", self.tree_open)
         self.tree.bind("<Return>", self.tree_open)
         self.tree.bind("<Button-3>", self.tree_menu)
 
-    def text_tab(self, title, send, button):
-        frame = ttk.Frame(self.notebook, padding=(0, 3, 0, 0))
+    def tab(self, title):
+        frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text=title)
-        text = tk.Text(frame, wrap="word", state="disabled", height=10)
-        scroll = ttk.Scrollbar(frame, command=text.yview)
+        header = ttk.Frame(frame, style="Header.TFrame", padding=(8, 5))
+        header.pack(fill="x")
+        return frame, header
+
+    def text_area(self, frame):
+        holder = ttk.Frame(frame)
+        holder.pack(fill="both", expand=True, pady=(3, 0))
+        text = tk.Text(holder, wrap="word", state="disabled", height=10, padx=6, pady=4)
+        scroll = ttk.Scrollbar(holder, command=text.yview)
         text.configure(yscrollcommand=scroll.set)
-        entry = None
-        if send:
-            row = ttk.Frame(frame)
-            row.pack(side="bottom", fill="x", pady=(3, 0))
-            entry = ttk.Entry(row)
-            entry.pack(side="left", fill="x", expand=True)
-            entry.bind("<Return>", lambda event: send())
-            ttk.Button(row, text=button, command=send).pack(side="left", padx=(3, 0))
         scroll.pack(side="right", fill="y")
         text.pack(side="left", fill="both", expand=True)
-        return text, entry
+        return text
+
+    def entry_row(self, frame, send):
+        row = ttk.Frame(frame)
+        row.pack(fill="x", pady=(3, 0))
+        entry = ttk.Entry(row)
+        entry.pack(side="left", fill="x", expand=True)
+        entry.bind("<Return>", lambda event: send())
+        button = ttk.Button(row, text="Send", command=send)
+        button.pack(side="right", padx=(3, 0))
+        return row, entry, button
+
+    def build_chat_tab(self):
+        frame, header = self.tab("Chat")
+        self.room_label = ttk.Label(header, style="Header.TLabel", font=self.bold_font)
+        self.room_label.pack(side="left")
+        self.room_hint = ttk.Label(header, style="HeaderMuted.TLabel")
+        self.room_hint.pack(side="left", padx=(8, 0))
+        self.leave_button = ttk.Button(header, text="Leave room", command=self.leave_room)
+        self.leave_button.pack(side="right")
+        limit_note(frame, CHAT_LIMIT_TEXT).pack(fill="x")
+        self.chat = self.text_area(frame)
+        row, self.chat_entry, self.chat_send = self.entry_row(frame, self.send_chat)
+        self.chat_count = ttk.Label(row, style="Muted.TLabel", width=11, anchor="e")
+        self.chat_count.pack(side="right", padx=(6, 0))
+        self.chat_entry.bind("<KeyRelease>", lambda event: self.update_chat_count())
+
+    def build_message_tab(self):
+        frame, header = self.tab("Message")
+        self.reader_title = ttk.Label(header, style="Header.TLabel")
+        self.reader_title.pack(side="left")
+        self.reply_button = ttk.Button(header, text="Reply", command=self.reply)
+        self.reply_button.pack(side="right")
+        self.post_button = ttk.Button(header, text="New post", command=self.new_post)
+        self.post_button.pack(side="right", padx=(0, 4))
+        self.reader = self.text_area(frame)
+
+    def build_log_tab(self):
+        frame, header = self.tab("Server log")
+        ttk.Label(
+            header, style="Header.TLabel",
+            text="Everything the server sends. You can type RetiBBS commands below; ? lists them.",
+        ).pack(side="left")
+        self.console = self.text_area(frame)
+        _row, self.console_entry, self.console_send = self.entry_row(frame, self.send_console)
 
     def place_sash(self):
         width = self.pane.winfo_width()
@@ -454,7 +632,7 @@ class App:
             self.root.after(50, self.place_sash)
             return
         position = self.settings.get("sash") or int(width * 0.62)
-        self.pane.sashpos(0, max(250, min(position, width - 180)))
+        self.pane.sashpos(0, max(300, min(position, width - 200)))
 
     # appearance
     def toggle_theme(self):
@@ -469,9 +647,9 @@ class App:
                 tkfont.nametofont(name).configure(size=size)
             except tk.TclError:
                 pass
-        self.text_font.configure(size=size)
-        self.bold_font.configure(size=size)
-        self.fixed_font.configure(size=size)
+        for font in (self.text_font, self.bold_font, self.fixed_font, self.fixed_bold_font):
+            font.configure(size=size)
+        self.title_font.configure(size=size + 3)
         ttk.Style(self.root).configure("Treeview", rowheight=int(size * 2.2))
         self.palette = PALETTES.get(self.settings["theme"], PALETTES["light"])
         apply_theme(self.root, self.palette, self.menus, (self.chat, self.reader, self.console))
@@ -481,8 +659,7 @@ class App:
         for text in (self.chat, self.reader, self.console):
             text.tag_configure("bold", font=self.bold_font)
             text.tag_configure("name", font=self.bold_font)
-        self.title_font.configure(size=size + 3)
-        self.fixed_bold_font.configure(size=size)
+            text.tag_configure("hint", foreground=self.palette["muted"])
         self.reader.tag_configure("title", font=self.title_font)
         self.reader.tag_configure("meta", foreground=self.palette["muted"])
         self.console.tag_configure("bold", font=self.fixed_bold_font)
@@ -496,6 +673,12 @@ class App:
         widget.configure(state="disabled")
         if at_end:
             widget.see("end")
+
+    def set_text(self, widget, chunks):
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        widget.configure(state="disabled")
+        self.append(widget, chunks)
 
     def chat_log(self, text, tag="sys", who=None):
         chunks = [(time.strftime("[%H:%M] "), ("time",))]
@@ -524,15 +707,76 @@ class App:
         chunks.append(("\n", ()))
         self.append(self.console, chunks)
 
+    def log(self, text, tag="sys"):
+        self.console_write(time.strftime("%H:%M ") + text.replace("[", "\\["), tag)
+
+    def show_notice(self, level, text):
+        style = "Error" if level == "error" else "Info"
+        self.notice_frame.configure(style=f"{style}.TFrame")
+        self.notice_label.configure(text=text, style=f"{style}.TLabel")
+        self.notice_close.configure(style=f"{style}.TLabel")
+        self.notice_frame.pack(fill="x", after=self.toolbar)
+        if self.notice_job:
+            self.root.after_cancel(self.notice_job)
+        self.notice_job = self.root.after(NOTICE_MS * (2 if level == "error" else 1), self.hide_notice)
+
+    def hide_notice(self):
+        self.notice_job = None
+        self.notice_frame.pack_forget()
+
     def error(self, text):
-        self.chat_log(text, "err")
-        self.console_write(text.replace("[", "\\["), "err")
+        self.show_notice("error", text)
+        self.log(text, "err")
+
+    def copy(self, text):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.show_notice("info", "Copied to the clipboard.")
+
+    # servers
+    def remember_server(self, hash_hex, name):
+        """Save a BBS to the list. A name typed by the user is kept even when the server announces another."""
+        if name:
+            self.servers[hash_hex] = {"name": name, "custom": True}
+        else:
+            # no name typed: use the announced one, or the last one we saw
+            announced = self.discovery.snapshot().get(hash_hex, {}).get("name")
+            saved = self.servers.get(hash_hex, {})
+            last = None if saved.get("custom") else saved.get("name")
+            self.servers[hash_hex] = {"name": announced or last or hash_hex, "custom": False}
+        self.servers.save()
+        if hash_hex == self.server_hash:
+            self.server_name = self.servers[hash_hex]["name"]
+            self.show_server_name()
+
+    def rename_server(self):
+        if not self.server_hash:
+            messagebox.showinfo(APP_TITLE, "Connect to a BBS first, or rename it in the Connect dialog.", parent=self.root)
+            return
+        saved = self.servers.get(self.server_hash, {})
+        name = self.ask_name(
+            "Rename this BBS", "Name to show for this BBS (empty uses the announced name):",
+            saved.get("name", "") if saved.get("custom") else "", allow_empty=True,
+        )
+        if name is not None:
+            self.remember_server(self.server_hash, name)
+
+    def show_server_name(self):
+        self.server_label.configure(text=self.server_name or "")
+        if self.tree.exists(ROOT_ID):
+            self.tree.item(ROOT_ID, text=" " + (self.server_name or ""))
+        self.root.title(f"{self.server_name} - {APP_TITLE}" if self.server_name else APP_TITLE)
+        if self.client and self.client.connected:
+            self.status_var.set(f"Connected to {self.server_name}")
 
     # connection
     def connect_dialog(self):
         hash_hex = ConnectDialog(self).show()
         if hash_hex:
             self.connect_to(hash_hex)
+
+    def settings_dialog(self):
+        SettingsDialog(self).show()
 
     def connect_to(self, hash_hex):
         self.disconnect(quiet=True)
@@ -541,11 +785,15 @@ class App:
         self.server_name = name or RNS.prettyhexrep(bytes.fromhex(hash_hex))
         self.client = Client(self.identity)
         self.started = False
-        self.boards, self.messages, self.unread, self.rooms, self.reading = [], {}, {}, [], None
-        self.chat_log(f"Connecting to {self.server_name}...")
+        self.reset_state()
+        self.show_server_name()
+        self.account_label.configure(text="connecting...")
+        self.log(f"Connecting to {self.server_name}...")
         self.status_var.set(f"Connecting to {self.server_name}...")
         self.client.connect(hash_hex)
         self.rebuild_tree()
+        self.show_room()
+        self.show_reader_empty()
 
     def disconnect(self, quiet=False):
         client = self.client
@@ -554,23 +802,30 @@ class App:
         self.client = None
         client.disconnect()
         if not quiet:
-            self.chat_log("Disconnected.")
+            self.log("Disconnected.")
         self.offline()
 
     def offline(self):
         self.status_var.set("Not connected")
         self.rtt_var.set("")
-        self.where_var.set("")
+        self.alert_var.set("")
+        self.account_label.configure(text="")
+        if self.client is None:
+            self.server_label.configure(text="Not connected")
+            self.root.title(APP_TITLE)
         self.rns_label.configure(image=self.icons["rns_off"])
         self.tree.delete(*self.tree.get_children())
+        self.tree.insert("", "end", iid=OFFLINE_ID, text=" Not connected. Click Connect... to pick a BBS.")
         self.set_connected_widgets(False)
+        self.show_room()
+        self.show_reader_empty()
 
     def set_connected_widgets(self, online):
         state = "!disabled" if online else "disabled"
-        for button in self.online_buttons + [self.disconnect_button]:
-            button.state([state])
-        for entry in (self.chat_entry, self.console_entry):
-            entry.state([state])
+        for widget in (self.disconnect_button, self.post_button, self.console_entry, self.console_send):
+            widget.state([state])
+        self.reply_button.state(["!disabled" if online and self.reading else "disabled"])
+        self.update_chat_count()
 
     def quit(self):
         try:
@@ -582,53 +837,83 @@ class App:
         self.disconnect(quiet=True)
         self.root.destroy()
 
+    def start_session(self):
+        """First commands after connecting: name, alert address, then fill the tree."""
+        client = self.client
+        name, address = self.settings["display_name"], self.settings["alert_address"]
+        steps = []
+        if name:
+            steps.append(f"n {name}")
+        if address:
+            self.quiet_alert = True
+            steps.append(f"d {address}")
+        if name:
+            # the server cannot answer "h" until the user has a name
+            steps.append("h")
+        client.run(*steps)
+        client.goto(CHAT, "/list")
+        client.goto(BOARDS, "lb", "wl")
+
+    def ask_display_name(self):
+        name = self.ask_name(
+            "Pick a display name",
+            "RetiBBS needs a display name before it answers.\nIt is shown on your posts and chat, and each BBS "
+            "allows a name only once.",
+        )
+        if name:
+            self.settings["display_name"] = name
+            self.settings.save()
+        if self.client:
+            self.start_session()
+
     # navigation
     def online(self):
         if self.client is None or not self.client.connected or self.client.area is None:
-            self.chat_log("Not connected.", "err")
+            self.error("Not connected.")
             return False
         return True
 
-    def navigate(self, area, *commands, console=False):
+    def navigate(self, area, *commands, log=False):
         """Go to an area and run commands, warning first if that drops you out of a chat room."""
         if not self.online():
             return False
         client = self.client
         if client.room and area != CHAT and client.planned_area() == CHAT:
             if not messagebox.askyesno(
-                APP_TITLE,
-                f"RetiBBS takes you out of chat room '{client.room}' when you leave the chat area.\n\nContinue?",
+                "Leave chat room?",
+                f"This takes you out of chat room '{client.room}'.\n\nRetiBBS only keeps you in a room while you "
+                "stay in its chat area, and chat is not stored, so you will miss what is said until you join again."
+                "\n\nContinue?",
                 parent=self.root,
             ):
                 return False
         client.goto(area, *commands)
-        if console:
-            self.notebook.select(2)
+        if log:
+            self.notebook.select(LOG_TAB)
         return True
 
     def open_boards(self):
-        self.navigate(BOARDS, "lb")
+        self.navigate(BOARDS, "lb", "wl")
 
     def open_rooms(self):
         self.navigate(CHAT, "/list")
 
-    def open_board(self, board, page_command="lm"):
+    def on_board(self, board, *commands):
+        """Run commands with the given board selected on the server."""
         steps = []
         if self.client.board != board or self.client.planned_area() != BOARDS:
             steps.append((f"cb {board}", "board", board))
-        steps += [page_command, "lu"]
-        self.navigate(BOARDS, *steps)
+        return self.navigate(BOARDS, *steps, *commands)
+
+    def open_board(self, board):
+        self.on_board(board, "lm", "lu")
 
     def read_message(self, board, message_id):
-        steps = []
-        if self.client.board != board:
-            steps.append((f"cb {board}", "board", board))
-        steps.append(f"r {message_id}")
-        self.navigate(BOARDS, *steps)
+        self.on_board(board, f"r {message_id}")
 
     def join_room(self, room):
-        self.navigate(CHAT, f"/j {room}", "/list")
-        self.notebook.select(0)
+        if self.navigate(CHAT, f"/j {room}", "/list"):
+            self.notebook.select(CHAT_TAB)
 
     def leave_room(self):
         if self.client and self.client.room:
@@ -638,7 +923,7 @@ class App:
         if not self.online():
             return
         tab = self.notebook.index("current")
-        if tab == 0 or self.client.area == CHAT:
+        if tab == CHAT_TAB or self.client.area == CHAT:
             self.open_rooms()
         elif self.client.board:
             self.open_board(self.client.board)
@@ -648,33 +933,78 @@ class App:
     def server_help(self):
         if self.online():
             self.client.run("/?" if self.client.planned_area() == CHAT else "?")
-            self.notebook.select(2)
+            self.notebook.select(LOG_TAB)
 
     def new_post(self, board=None):
         if not self.online():
             return
+        if not self.boards:
+            self.error("This BBS has no boards yet. An admin has to create one first.")
+            return
         result = PostDialog(self, self.boards, board or self.client.board).show()
         if result:
-            board, command = result
-            self.open_board_then(board, command)
-
-    def open_board_then(self, board, command):
-        steps = []
-        if self.client.board != board:
-            steps.append((f"cb {board}", "board", board))
-        steps.append(command)
-        self.navigate(BOARDS, *steps)
+            self.on_board(*result)
 
     def reply(self, message=None):
         if not self.online():
             return
         message = message or self.reading
         if message is None:
-            messagebox.showinfo(APP_TITLE, "Open a message first (double click it in the board list).", parent=self.root)
+            self.show_notice("info", "Open a message first: double click it in the list on the right.")
             return
         result = PostDialog(self, self.boards, reply_to=message).show()
         if result:
-            self.open_board_then(message["board"], result[1])
+            self.on_board(*result)
+
+    def set_watch(self, board, on):
+        if on and not self.client.alert_address:
+            if messagebox.askyesno(
+                "Board alerts",
+                "Alerts arrive as LXMF messages in another app, such as Sideband, Columba or MeshChat. Set that "
+                "app's LXMF address in Settings first.\n\nOpen Settings now?",
+                parent=self.root,
+            ):
+                self.settings_dialog()
+            return
+        # RetiBBS watches the board you are in, whatever name you give, so select it first
+        self.on_board(board, "w" if on else "uw", "wl")
+
+    def send_alert_test(self, address):
+        commands = [] if self.client and self.client.alert_address == address else [f"d {address}"]
+        self.settings["alert_address"] = address
+        self.settings.save()
+        if self.navigate(MAIN, *commands, "td", "h"):
+            self.show_notice("info", "Test requested. Check your LXMF app; it can take a minute over slow links.")
+
+    def load_users(self):
+        if not self.online():
+            return
+        if not self.client.is_admin:
+            self.show_notice("info", "Only admins can list the users of a BBS.")
+            return
+        self.navigate(MAIN, "lu")
+
+    def make_admin(self, user):
+        name = user["name"] or user["hash"]
+        if messagebox.askyesno(
+            "Make admin",
+            f"Give {name} admin rights on {self.server_name}?\n\nAdmins can create and delete boards and make other "
+            "admins. RetiBBS has no command to take admin rights away again.",
+            parent=self.root,
+        ):
+            self.navigate(MAIN, f"a {user['hash']}", "lu")
+
+    def update_chat_count(self):
+        client = self.client
+        in_room = bool(client and client.connected and client.room)
+        limit = client.chat_limit() if in_room else None
+        used = Client.chat_cost(self.chat_entry.get())
+        over = limit is not None and used > limit
+        self.chat_count.configure(
+            text=f"{used} / {limit}" if limit is not None else "", style="Over.TLabel" if over else "Muted.TLabel"
+        )
+        self.chat_entry.state(["!disabled" if in_room else "disabled"])
+        self.chat_send.state(["!disabled" if in_room and not over else "disabled"])
 
     def send_chat(self):
         text = self.chat_entry.get().strip()
@@ -683,14 +1013,15 @@ class App:
         if text.startswith("/"):
             self.navigate(CHAT, text)
         elif not self.client.room:
-            self.chat_log("Join a room first: double click one in the tree, or type /join NAME.", "err")
+            self.show_notice("info", "Join a room first: double click one in the list on the right.")
             return
-        elif not self.client.fits(text):
-            self.chat_log("That message is too long for one packet.", "err")
+        elif Client.chat_cost(text) > (self.client.chat_limit() or 0):
+            self.error("Too long for one chat packet. Shorten the message.")
             return
         else:
             self.client.run(text)
         self.chat_entry.delete(0, "end")
+        self.update_chat_count()
 
     def send_console(self):
         text = self.console_entry.get().strip()
@@ -700,6 +1031,71 @@ class App:
         self.client.run(text)
         self.console_entry.delete(0, "end")
 
+    # views
+    def show_room(self):
+        client = self.client
+        room = client.room if client else None
+        if room:
+            count = dict(self.rooms).get(room)
+            self.room_label.configure(text=room)
+            self.room_hint.configure(text=f"{count} here" if count else "")
+            self.notebook.tab(CHAT_TAB, text=f"Chat: {room}")
+            self.leave_button.state(["!disabled"])
+        else:
+            self.room_label.configure(text="Not in a chat room")
+            hint = "Double click a room on the right to join it." if client else ""
+            self.room_hint.configure(text=hint)
+            self.notebook.tab(CHAT_TAB, text="Chat")
+            self.leave_button.state(["disabled"])
+        self.update_chat_count()
+
+    def show_reader_empty(self):
+        self.reading = None
+        self.reader_title.configure(text="No message open")
+        self.notebook.tab(MESSAGE_TAB, text="Message")
+        hint = "Double click a message in the list on the right to read it here." if self.client else ""
+        self.set_text(self.reader, [(hint, ("hint",))])
+        self.reply_button.state(["disabled"])
+
+    def show_message(self, message):
+        message["board"] = self.client.board
+        self.reading = message
+        chunks = [(message["topic"] + "\n", ("title",))]
+        meta = f"{message['author']}  ·  {message['time']}  ·  #{message['id']} in {message['board']}"
+        chunks.append((meta + "\n\n", ("meta",)))
+        chunks.append((message["body"] + "\n", ()))
+        if message["replies"]:
+            count = len(message["replies"])
+            chunks.append((f"\n{count} {'reply' if count == 1 else 'replies'}\n", ("bold",)))
+            for reply in message["replies"]:
+                chunks.append((f"\n{reply['author']}", ("name",)))
+                chunks.append((f"  {reply['time']}\n", ("meta",)))
+                chunks.append((reply["body"] + "\n", ()))
+        self.set_text(self.reader, chunks)
+        self.reader.see("1.0")
+        self.reader_title.configure(text=f"{message['board']} › {message['topic']}")
+        topic = message["topic"] if len(message["topic"]) <= 22 else message["topic"][:21] + "…"
+        self.notebook.tab(MESSAGE_TAB, text=f"Message: {topic}")
+        self.reply_button.state(["!disabled"])
+        self.notebook.select(MESSAGE_TAB)
+        self.unread.get(message["board"], set()).discard(message["id"])
+        self.fill_boards()
+
+    def update_account(self):
+        client = self.client
+        if client is None:
+            return
+        who = client.user_name or self.settings["display_name"] or "no name yet"
+        admin = ", admin" if client.is_admin else ""
+        self.account_label.configure(text=f"signed in as {who}{admin}")
+        self.status_var.set(f"Connected to {self.server_name}")
+        if client.alert_address is None:
+            self.alert_var.set("")
+        else:
+            self.alert_var.set("Board alerts: " + ("on" if client.alert_address else "no address set"))
+        if self.tree.exists(ROOT_ID):
+            self.fill_users()
+
     # tree
     def rebuild_tree(self):
         tree = self.tree
@@ -707,10 +1103,11 @@ class App:
         if self.client is None:
             return
         tree.insert("", "end", iid=ROOT_ID, text=" " + self.server_name, image=self.icons["server"], open=True)
-        tree.insert(ROOT_ID, "end", iid=BOARDS_ID, text=" Message Boards", open=True)
-        tree.insert(ROOT_ID, "end", iid=ROOMS_ID, text=" Chat Rooms", open=True)
+        tree.insert(ROOT_ID, "end", iid=BOARDS_ID, text=" Message boards", open=True)
+        tree.insert(ROOT_ID, "end", iid=ROOMS_ID, text=" Chat rooms", open=True)
         self.fill_boards()
         self.fill_rooms()
+        self.fill_users()
 
     def fill_boards(self):
         if not self.tree.exists(BOARDS_ID):
@@ -721,12 +1118,15 @@ class App:
         for board in self.boards:
             iid = "board:" + board
             unread = self.unread.get(board)
-            label = f" {board}" + (f"  ({len(unread)} unread)" if unread else "")
+            label = f" {board}" + (f"  ({len(unread)} new)" if unread else "")
+            label += "  · alerts on" if board in self.watched else ""
             self.tree.insert(
                 BOARDS_ID, "end", iid=iid, text=label, image=self.icons["channel"],
-                tags=("self",) if board == current else (), open=iid in opened or board == current,
+                tags=("unread",) if unread else (), open=iid in opened or board == current,
             )
             self.fill_messages(board)
+        if not self.boards:
+            self.tree.insert(BOARDS_ID, "end", iid="boards:none", text="(no boards yet)")
 
     def fill_messages(self, board):
         iid = "board:" + board
@@ -744,7 +1144,7 @@ class App:
         if page < pages:
             self.tree.insert(iid, "end", iid=f"next:{board}", text=f"Older messages ›  (page {page} of {pages})")
         if not messages:
-            self.tree.insert(iid, "end", iid=f"empty:{board}", text="(no messages)")
+            self.tree.insert(iid, "end", iid=f"empty:{board}", text="(no messages yet)")
 
     def fill_rooms(self):
         if not self.tree.exists(ROOMS_ID):
@@ -756,36 +1156,63 @@ class App:
         if current and current not in names:
             rooms.append((current, 1))
         for name, count in rooms:
+            you = ", you are here" if name == current else ""
             self.tree.insert(
-                ROOMS_ID, "end", iid="room:" + name, text=f" {name}  ({count})",
+                ROOMS_ID, "end", iid="room:" + name, text=f" {name}  ({count}{you})",
                 image=self.icons["user_idle"] if name == current else self.icons["channel"],
                 tags=("self",) if name == current else (),
             )
         if not rooms:
-            self.tree.insert(ROOMS_ID, "end", iid="rooms:none", text="(no open rooms; right click to create one)")
+            self.tree.insert(ROOMS_ID, "end", iid="rooms:none", text="(none open; right click to start one)")
+
+    def fill_users(self):
+        """Admins get a Users branch; RetiBBS only lists users to admins."""
+        admin = bool(self.client and self.client.is_admin)
+        if not admin:
+            if self.tree.exists(USERS_ID):
+                self.tree.delete(USERS_ID)
+            return
+        if not self.tree.exists(USERS_ID):
+            self.tree.insert(ROOT_ID, "end", iid=USERS_ID, text=" Users", open=True)
+        self.tree.delete(*self.tree.get_children(USERS_ID))
+        if self.users is None:
+            self.tree.insert(USERS_ID, "end", iid="users:load", text="(double click to load)")
+            return
+        for user in sorted(self.users, key=lambda user: (user["name"] or "~").lower()):
+            name = user["name"] or "(no name) " + user["hash"][:8]
+            self.tree.insert(
+                USERS_ID, "end", iid="user:" + user["hash"], text=f" {name}" + ("  (admin)" if user["admin"] else ""),
+                image=self.icons["user_idle"],
+            )
 
     def tree_open(self, event=None):
         selection = self.tree.selection()
-        if not selection or not self.online():
+        if not selection or selection[0] == OFFLINE_ID:
+            if selection:
+                self.connect_dialog()
+            return "break"
+        if not self.online():
             return "break"
         iid = selection[0]
         kind, _, rest = iid.partition(":")
         if iid == BOARDS_ID:
             self.open_boards()
-        elif iid == ROOMS_ID or iid == "rooms:none":
+        elif iid in (ROOMS_ID, "rooms:none"):
             self.open_rooms()
+        elif iid in (USERS_ID, "users:load"):
+            self.load_users()
         elif kind == "board":
             self.open_board(rest)
         elif kind == "msg":
             board, _, message_id = rest.rpartition(":")
             self.read_message(board, int(message_id))
         elif kind == "next":
-            self.open_board_then(rest, ">")
+            self.on_board(rest, ">", "lu")
         elif kind == "prev":
-            self.open_board_then(rest, "<")
+            self.on_board(rest, "<", "lu")
         elif kind == "room":
             if self.client.room == rest:
-                self.notebook.select(0)
+                self.notebook.select(CHAT_TAB)
             else:
                 self.join_room(rest)
         return "break"
@@ -798,7 +1225,11 @@ class App:
         kind, _, rest = iid.partition(":")
         menu = tk.Menu(self.root, tearoff=0)
         admin = self.client.is_admin
-        if iid == BOARDS_ID:
+        if iid == ROOT_ID:
+            menu.add_command(label="Rename...", command=self.rename_server)
+            menu.add_command(label="Copy address", command=lambda: self.copy(self.server_hash))
+            menu.add_command(label="Disconnect", command=self.disconnect)
+        elif iid in (BOARDS_ID, "boards:none"):
             menu.add_command(label="Refresh", command=self.open_boards)
             menu.add_command(label="New post...", command=self.new_post)
             if admin:
@@ -807,8 +1238,11 @@ class App:
             menu.add_command(label="Open", command=lambda: self.open_board(rest))
             menu.add_command(label="New post...", command=lambda: self.new_post(rest))
             menu.add_separator()
-            menu.add_command(label="Watch (LXMF alerts)", command=lambda: self.navigate(BOARDS, f"w {rest}", console=True))
-            menu.add_command(label="Unwatch", command=lambda: self.navigate(BOARDS, f"uw {rest}", console=True))
+            watched = tk.BooleanVar(value=rest in self.watched)
+            menu.add_checkbutton(
+                label="Alert me about new posts", variable=watched, command=lambda: self.set_watch(rest, watched.get())
+            )
+            menu.watched = watched  # keep the variable alive while the menu is open
             if admin:
                 menu.add_separator()
                 menu.add_command(label="Delete board...", command=lambda: self.delete_board(rest))
@@ -817,12 +1251,19 @@ class App:
             menu.add_command(label="Read", command=lambda: self.read_message(board, int(message_id)))
         elif iid in (ROOMS_ID, "rooms:none"):
             menu.add_command(label="Refresh", command=self.open_rooms)
-            menu.add_command(label="Create or join room...", command=self.ask_room)
+            menu.add_command(label="Start or join a room...", command=self.ask_room)
         elif kind == "room":
             if self.client.room == rest:
                 menu.add_command(label="Leave", command=self.leave_room)
             else:
                 menu.add_command(label="Join", command=lambda: self.join_room(rest))
+        elif iid in (USERS_ID, "users:load"):
+            menu.add_command(label="Refresh", command=self.load_users)
+        elif kind == "user":
+            user = next((user for user in self.users or [] if user["hash"] == rest), None)
+            if user and not user["admin"]:
+                menu.add_command(label="Make admin...", command=lambda: self.make_admin(user))
+            menu.add_command(label="Copy user hash", command=lambda: self.copy(rest))
         else:
             return
         self.palette_menu(menu)
@@ -830,64 +1271,48 @@ class App:
 
     def palette_menu(self, menu):
         palette = self.palette
-        menu.configure(bg=palette["btn"], fg=palette["fg"])
+        menu.configure(bg=palette["btn"], fg=palette["fg"], selectcolor=palette["fg"])
         menu.configure(activebackground=palette["select"], activeforeground=palette["selfg"])
 
-    def ask_name(self, title, prompt):
+    def ask_name(self, title, prompt, initial="", allow_empty=False):
         dialog = Dialog(self.root, title)
-        ttk.Label(dialog.body, text=prompt).grid(row=0, column=0, sticky="w")
-        value = tk.StringVar()
-        entry = ttk.Entry(dialog.body, textvariable=value, width=30)
+        ttk.Label(dialog.body, text=prompt, justify="left").grid(row=0, column=0, sticky="w")
+        value = tk.StringVar(value=initial)
+        entry = ttk.Entry(dialog.body, textvariable=value, width=36)
         entry.grid(row=1, column=0, sticky="ew", pady=4)
         entry.focus_set()
         entry.bind("<Return>", lambda event: dialog.ok())
-        dialog.buttons()
         original_ok = dialog.ok
 
         def ok():
-            dialog.result = value.get().strip() or None
+            text = value.get().strip()
+            dialog.result = text if text or allow_empty else None
             original_ok()
 
         dialog.ok = ok
+        dialog.buttons()  # after replacing ok, so the OK button calls the new one
         return dialog.show()
 
     def ask_room(self):
-        name = self.ask_name("Chat room", "Room name (a new room is created if it does not exist):")
+        name = self.ask_name("Chat room", "Room name. A new room is started if none has this name:")
         if name:
             self.join_room(name)
 
     def new_board(self):
-        name = self.ask_name("New board", "Board name:")
-        if name:
-            self.navigate(BOARDS, f"nb {name}", "lb", console=True)
+        name = self.ask_name("New board", "Board name: 3 to 20 letters or digits, no spaces.")
+        if not name:
+            return
+        if not BOARD_NAME.fullmatch(name):
+            self.error("RetiBBS board names are 3 to 20 letters or digits, with no spaces or symbols.")
+            return
+        self.navigate(BOARDS, f"nb {name}", "lb")
 
     def delete_board(self, board):
-        if messagebox.askyesno(APP_TITLE, f"Delete board '{board}' and all its messages?", parent=self.root):
-            self.navigate(BOARDS, f"db {board}", "lb", console=True)
-
-    # reader
-    def show_message(self, message):
-        message["board"] = self.client.board
-        self.reading = message
-        reader = self.reader
-        reader.configure(state="normal")
-        reader.delete("1.0", "end")
-        reader.insert("end", message["topic"] + "\n", ("title",))
-        meta = f"{message['author']}  ·  {message['time']}  ·  #{message['id']}  in {message['board']}"
-        reader.insert("end", meta + "\n\n", ("meta",))
-        reader.insert("end", message["body"] + "\n")
-        if message["replies"]:
-            count = len(message["replies"])
-            reader.insert("end", f"\n{count} {'reply' if count == 1 else 'replies'}\n", ("bold",))
-            for reply in message["replies"]:
-                reader.insert("end", f"\n{reply['author']}", ("name",))
-                reader.insert("end", f"  {reply['time']}\n", ("meta",))
-                reader.insert("end", reply["body"] + "\n")
-        reader.configure(state="disabled")
-        self.reader_title.configure(text=f"{message['board']} › {message['topic']}")
-        self.notebook.select(1)
-        self.unread.get(message["board"], set()).discard(message["id"])
-        self.fill_boards()
+        if messagebox.askyesno(
+            "Delete board", f"Delete board '{board}' and every message in it?\n\nThis cannot be undone.",
+            parent=self.root,
+        ):
+            self.navigate(BOARDS, f"db {board}", "lb")
 
     # events from the client
     def refresh(self):
@@ -909,7 +1334,9 @@ class App:
             self.root.after(REFRESH_MS, self.refresh)
 
     def update_server_name(self):
-        """Use the announced name once an announce arrives."""
+        """Use the announced name once an announce arrives, unless the user named this BBS."""
+        if self.servers.get(self.server_hash, {}).get("custom"):
+            return
         name = self.discovery.snapshot().get(self.server_hash, {}).get("name")
         if not name or name == self.server_name:
             return
@@ -917,42 +1344,25 @@ class App:
         if self.server_hash in self.servers:
             self.servers[self.server_hash]["name"] = name
             self.servers.save()
-        if self.tree.exists(ROOT_ID):
-            self.tree.item(ROOT_ID, text=" " + name)
-        if self.client.connected:
-            self.update_where()
-
-    def update_where(self):
-        client = self.client
-        if client is None:
-            return
-        who = client.user_name or RNS.prettyhexrep(self.identity.hash)
-        admin = " (admin)" if client.is_admin else ""
-        self.status_var.set(f"Connected to {self.server_name} as {who}{admin}")
-        parts = [client.area or ""]
-        if client.area == BOARDS and client.board:
-            parts.append(client.board)
-        if client.area == CHAT and client.room:
-            parts.append(client.room)
-        self.where_var.set(" › ".join(part for part in parts if part))
+        self.show_server_name()
 
     def handle_event(self, event):
         kind = event[0]
         client = self.client
         if kind == "status":
             self.status_var.set(event[1])
-            self.chat_log(event[1])
+            self.log(event[1])
         elif kind == "failed":
             self.error(event[1])
             self.client = None
             self.offline()
         elif kind == "connected":
             hops = event[1]
-            path = f" ({hops} hop{'s' if hops != 1 else ''} away)" if hops is not None else ""
-            self.chat_log(f"Connected to {self.server_name}{path}.")
+            path = f", {hops} hop{'s' if hops != 1 else ''} away" if hops is not None else ""
+            self.log(f"Connected to {self.server_name}{path}.")
             self.rns_label.configure(image=self.icons["rns_online"])
             self.set_connected_widgets(True)
-            self.update_where()
+            self.update_account()
         elif kind == "disconnected":
             self.error(f"Connection {event[1]}.")
             self.client = None
@@ -960,29 +1370,41 @@ class App:
         elif kind == "area":
             if not self.started:
                 self.started = True
-                # the server cannot answer "h" until the user has a name
                 if self.settings["display_name"]:
-                    client.run(f"n {self.settings['display_name']}")
-                client.run("h")
-                client.goto(CHAT, "/list")
-                client.goto(BOARDS, "lb")
-            self.update_where()
+                    self.start_session()
+                else:
+                    self.root.after(10, self.ask_display_name)
         elif kind == "board":
-            self.update_where()
             self.fill_boards()
         elif kind in ("room", "joined", "left"):
             if kind == "left" and event[1]:
                 self.chat_log(f"You left {event[1]}.")
-            self.update_where()
             self.fill_rooms()
-        elif kind == "hello":
-            self.update_where()
-        elif kind == "named":
-            client.user_name = self.settings["display_name"] or client.user_name
-            self.update_where()
+            self.show_room()
+        elif kind in ("hello", "named"):
+            if kind == "named":
+                client.user_name = self.settings["display_name"] or client.user_name
+            self.update_account()
         elif kind == "boards":
             self.boards = event[1]
             self.fill_boards()
+        elif kind == "watchlist":
+            self.watched = set(event[1])
+            self.fill_boards()
+        elif kind == "watch_changed":
+            (self.watched.add if event[2] else self.watched.discard)(event[1])
+            self.fill_boards()
+        elif kind == "users":
+            self.users = event[1]
+            self.fill_users()
+        elif kind == "alert_set":
+            client.alert_address = self.settings["alert_address"]
+            self.update_account()
+        elif kind == "notice":
+            if self.quiet_alert and event[2].startswith("Destination address updated"):
+                self.quiet_alert = False
+            else:
+                self.show_notice(event[1], event[2])
         elif kind == "messages":
             _, board, page, pages, messages = event
             self.messages[board] = (page, pages, messages)
@@ -996,13 +1418,14 @@ class App:
         elif kind == "message":
             self.show_message(event[1])
         elif kind == "posted":
-            board = client.board
-            if self.reading and self.reading.get("board") == board:
+            self.show_notice("info", "Posted.")
+            if self.reading and self.reading.get("board") == client.board:
                 client.run(f"r {self.reading['id']}")
             client.run("lm", "lu")
         elif kind == "rooms":
             self.rooms = event[1]
             self.fill_rooms()
+            self.show_room()
         elif kind == "chat":
             _, room, who, text, mine = event
             if mine:
@@ -1014,13 +1437,46 @@ class App:
         elif kind == "text":
             self.console_write(event[1])
         elif kind == "cls":
-            self.console.configure(state="normal")
-            self.console.delete("1.0", "end")
-            self.console.configure(state="disabled")
+            self.console_write("─" * 40, "hint")
         elif kind == "rtt":
-            self.rtt_var.set(f"RTT {event[1]:.2f} s")
+            self.rtt_var.set(f"Round trip {event[1]:.2f} s")
         elif kind == "error":
             self.error(event[1])
+
+    def show_limits(self):
+        limit = self.client.packet_limit if self.client and self.client.connected else None
+        size = f"{limit} bytes on this connection" if limit else "a few hundred bytes, depending on the link"
+        dialog = Dialog(self.root, "Server limits")
+        ttk.Label(
+            dialog.body, wraplength=520, justify="left",
+            text="These come from the RetiBBS server, not from this client.",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        items = (
+            ("Posts and replies", f"Each must fit in one Reticulum packet, topic included: {size}. The size "
+                                  "depends on the slowest link to the server: a few hundred bytes over LoRa or "
+                                  "packet radio, far more over TCP. Longer text is refused. Posts cannot be edited "
+                                  "or deleted, and only admins can delete a board."),
+            ("Chat", "Live only and not stored. You see only what is said while you are in the room. Each chat "
+                     "message must also fit in one packet, with the room and your name."),
+            ("Staying in a room", "You stay in a chat room only while you are in the chat area. Opening the boards, "
+                                  "changing your name or alert address, or listing users takes you out of the room."),
+            ("Files", "RetiBBS has no file sharing."),
+            ("Board alerts", "Sent as LXMF messages to another app; this client cannot receive them. An address "
+                             "can be replaced but not removed."),
+            ("Names", "You need a display name before the server answers. Each BBS allows a name only once. "
+                      "Board names are 3 to 20 letters or digits."),
+            ("Admins", "Only admins can list users, create or delete boards, and make other admins. RetiBBS has "
+                       "no command to take admin rights away."),
+        )
+        for row, (title, text) in enumerate(items, start=1):
+            ttk.Label(dialog.body, text=title, font=self.bold_font).grid(row=row, column=0, sticky="nw", pady=(4, 0))
+            ttk.Label(dialog.body, text=text, wraplength=520, justify="left").grid(
+                row=row, column=1, sticky="w", padx=(10, 0), pady=(4, 0)
+            )
+        row = ttk.Frame(dialog.body)
+        row.grid(row=99, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        ttk.Button(row, text="Close", command=dialog.ok).pack(side="right")
+        dialog.show()
 
     def about(self):
         messagebox.showinfo(
@@ -1047,7 +1503,7 @@ def main():
     root = tk.Tk(className="retibbs-gui")
     app = App(root, identity, prefs.settings(), prefs.servers(), discovery)
     if args.server:
-        root.after(200, lambda: app.connect_to(args.server.strip("<>").lower()))
+        root.after(200, lambda: app.connect_to(clean_hash(args.server)))
     root.mainloop()
     RNS.exit()
 

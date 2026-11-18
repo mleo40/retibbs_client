@@ -30,6 +30,19 @@ CHAT_MINE = re.compile(r"^\[(.+?)\] \(You\): (.*)$", re.S)
 CHAT_OTHER = re.compile(r"^\[(.+?)\] ([^:\n]+?): (.*)$", re.S)
 CHAT_NOTICE = re.compile(r"^\[(.+?)\] (.+)$", re.S)
 HELLO = re.compile(r"^Hello, (.+?)\.$", re.M)
+ALERT_ADDRESS = re.compile(r"Your LXMF destination address is: (\S+)")
+USER_LINE = re.compile(r"^- ([0-9a-f]{32}) \| (.*?)\s*(\(Admin\))?$")
+WATCH_CHANGED = re.compile(r"^Board '(.+)' (added to|removed from) your watchlist\.$")
+
+# one line replies: errors and confirmations are shown to the user, the rest only in the console
+NOTICE_ERRORS = (
+    "ERROR", "[ERROR]", "Error ", "Usage:", "UNKNOWN COMMAND", "Unknown command", "You cannot", "You do not have",
+    "NAME command", "Message ID ", "You are not in",
+)
+NOTICE_INFO = re.compile(
+    r"your watchlist\.$|has been deleted\.$|is ready\.$|granted admin rights\.$"
+    r"|^Destination address updated|^Test LXMF message"
+)
 
 
 def unescape(text):
@@ -133,6 +146,19 @@ def classify(text, area=None, room=None):
         return [("posted",), ("text", text)]
     if first.startswith("Your display name is now set to"):
         return [("text", text), ("named",)]
+    if first == "Your watchlist:":
+        return [("watchlist", [line.strip() for line in lines[1:] if line.strip()])]
+    if first == "You are not watching any boards.":
+        return [("watchlist", [])]
+    if first == "Users:":
+        users = []
+        for line in lines[1:]:
+            m = USER_LINE.match(line.strip())
+            if m:
+                users.append({"hash": m[1], "name": "" if m[2] == "N/A" else m[2], "admin": bool(m[3])})
+        return [("users", users)]
+    if first == "No users found.":
+        return [("users", [])]
 
     # Chat lines start with an unescaped "[room]", which Rich would read as a tag, so match the raw text
     if area == "Chat" and "\n" not in text.strip():
@@ -150,8 +176,26 @@ def classify(text, area=None, room=None):
     events = []
     hello = HELLO.search(body)
     if hello:
-        events.append(("hello", hello[1], "ADMIN rights" in body))
+        address = ALERT_ADDRESS.search(body)
+        events.append(("hello", hello[1], "ADMIN rights" in body, address[1] if address else ""))
+    elif len(lines) == 1 or first.startswith("ERROR"):
+        events += notice(first)
     events.append(("text", text))
+    return events
+
+
+def notice(line):
+    """Events for a one line reply that answers something the user did."""
+    is_error = line.startswith(NOTICE_ERRORS) or line.endswith("does not exist.")
+    if not line or not (is_error or NOTICE_INFO.search(line)):
+        return []
+    events = []
+    watch = WATCH_CHANGED.match(line)
+    if watch:
+        events.append(("watch_changed", watch[1], watch[2] == "added to"))
+    if line.startswith("Destination address updated"):
+        events.append(("alert_set",))
+    events.append(("notice", "error" if is_error else "info", line))
     return events
 
 

@@ -21,6 +21,10 @@ PALETTES = {
         "sys": "#3b6ea5",
         "err": "#c0392b",
         "me": "#2e7d32",
+        "limit_bg": "#fff4d6",
+        "limit_fg": "#6b4e00",
+        "info_bg": "#e2edfb",
+        "error_bg": "#fbe2df",
     },
     "dark": {
         "bg": "#2b2b2b",
@@ -35,6 +39,10 @@ PALETTES = {
         "sys": "#7fb0ea",
         "err": "#ef7b73",
         "me": "#7bc67e",
+        "limit_bg": "#3b3424",
+        "limit_fg": "#e8cf8a",
+        "info_bg": "#243449",
+        "error_bg": "#4a2826",
     },
 }
 
@@ -106,6 +114,18 @@ def apply_theme(root, palette, menus=(), texts=()):
         )
     style.configure("TProgressbar", background=palette["select"], troughcolor=palette["field"])
     style.configure("TLabelframe.Label", background=palette["bg"], foreground=palette["fg"])
+    # view headers, server limit notes, and the notice strip under the toolbar
+    style.configure("Header.TFrame", background=palette["btn"])
+    style.configure("Header.TLabel", background=palette["btn"], foreground=palette["fg"])
+    style.configure("Muted.TLabel", foreground=palette["muted"])
+    style.configure("HeaderMuted.TLabel", background=palette["btn"], foreground=palette["muted"])
+    style.configure("Limit.TFrame", background=palette["limit_bg"])
+    style.configure("Limit.TLabel", background=palette["limit_bg"], foreground=palette["limit_fg"])
+    style.configure("Over.TLabel", foreground=palette["err"])
+    for level in ("info", "error"):
+        name = level.capitalize()
+        style.configure(f"{name}.TFrame", background=palette[f"{level}_bg"])
+        style.configure(f"{name}.TLabel", background=palette[f"{level}_bg"], foreground=palette["fg"])
     style.configure("TScrollbar", background=palette["btn"], troughcolor=palette["bg"], arrowcolor=palette["fg"])
 
     root.configure(bg=palette["bg"])
