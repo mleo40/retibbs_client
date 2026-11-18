@@ -34,6 +34,18 @@ Limits that come from the server:
 - Tk for Python, which pip cannot install. On Debian or Ubuntu: `sudo apt install python3-tk`. On Fedora:
   `sudo dnf install python3-tkinter`
 
+## Reticulum
+
+The client does not need its own rnsd service. When it starts, it looks for a shared Reticulum instance:
+
+- If one is running (`rnsd`, or another app with sharing on, such as MeshChat, Sideband or NomadNet), the client
+  attaches to it and uses its interfaces.
+- If none is running, the client starts Reticulum itself from `~/.reticulum/config`, or the folder given with
+  `--reticulum-config`. While the client is open, other Reticulum apps attach to it.
+
+If the client started Reticulum, closing it takes the network down for every app attached to it. If you run several
+Reticulum apps, or want the machine always reachable, run `rnsd` as a service and let the apps attach to it.
+
 ## Install
 
 ```bash
