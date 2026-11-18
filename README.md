@@ -44,13 +44,15 @@ Settings, with the address for board alerts:
 
 - Welcome page with the message of the day (the newest post on a board named `motd`) and the server's welcome
   message
-- Boards with new message counts, paging, and a reader for messages and their replies
+- Boards with paging and a reader for messages and their replies. Once you open a board, its new messages are bold
+  and the board shows how many
 - New post and reply dialogs that count bytes against the packet limit of your connection
 - Chat rooms: join, leave, start one, with a size counter on every message
 - Board alerts: set your LXMF address in Settings, send a test, and turn alerts on per board
 - Admins: list users, make admins, create and delete boards
 - Your own name for each BBS, kept when the server announces a different one
-- Asks for a display name on first connect, since RetiBBS needs one before it answers
+- Asks for a display name on first connect, since RetiBBS needs one before it answers, and again if it is taken
+- Help > About: version, links, and the projects this client builds on
 
 ## Server limits
 
@@ -262,7 +264,7 @@ First steps in the window:
 
 1. Connect... lists your saved BBSes and the ones heard on the network. Pick one or paste its address. Type a Name
    if you want your own name for it, then Connect.
-2. On the first connection, pick a display name.
+2. On the first connection, pick a display name. If someone on that BBS already has it, the client asks again.
 3. Double click a board to list its messages; new ones are bold. Double click a message to read it.
 4. Double click a chat room to join it, or right click Chat rooms to start one.
 
@@ -274,7 +276,8 @@ More:
 - Commands typed in the Chat box that start with `/` go to the server's chat area, for example `/list`.
 - Admins: double click Users to load them; right click a user to make them an admin. Right click Message boards for
   New board, or a board for Delete board.
-- Keys: Ctrl+O connect, Ctrl+N new post, F5 refresh, Ctrl+1, 2 and 3 for the tabs.
+- Keys: Ctrl+O connect, Ctrl+D disconnect, Ctrl+N new post, F5 refresh, Ctrl+1, 2 and 3 for the tabs, Ctrl+Q
+  quit.
 
 Settings and saved servers live in `~/.config/retibbs-gui/`.
 
@@ -286,11 +289,21 @@ Settings and saved servers live in `~/.config/retibbs-gui/`.
 
 ## Credits
 
-- Theme, palettes and layout adapted from partyline (public domain)
-- Icons from [Tabler Icons](https://tabler.io/icons) (MIT), see `retibbs_gui/icons/LICENSE`
+Help > About in the client shows the version and these projects:
+
+- [RetiBBS](https://github.com/kc1awv/RetiBBS) by Steve Miller, KC1AWV (MIT): the server and protocol this client
+  talks to
+- [partyline](https://github.com/RFnexus/partyline) by RFnexus (public domain): theme, palettes and layout
+- [Reticulum](https://reticulum.network) by Mark Qvist (Reticulum License): the network stack
+- [Rich](https://github.com/Textualize/rich) (MIT): colors in server text
+- [Tabler Icons](https://tabler.io/icons) (MIT): icons, see `retibbs_gui/icons/LICENSE`
+
+![The About page](docs/about.png)
 
 ## Revision history
 
+- 0.4.0: About page with version and credits; asks again when a display name is taken; clears the message of
+  the day when the motd board is deleted
 - 0.3.0: Welcome page with the message of the day and the server's welcome message; empty board list says who can
   create boards
 - 0.2.0: Clearer layout with per tab buttons, server limits marked, board alerts, user list for admins, own names

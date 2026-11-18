@@ -12,6 +12,10 @@ requires-python = ">=3.10"
 dynamic = ["version"]
 dependencies = ["rns>=1.0", "rich"]
 
+[project.urls]
+Homepage = "https://github.com/mleo40/retibbs_client"
+RetiBBS = "https://github.com/kc1awv/RetiBBS"
+
 [project.scripts]
 retibbs-gui = "retibbs_gui.gui:main"
 
