@@ -48,10 +48,7 @@ CREDITS = (
      "Icons"),
 )
 
-CHAT_LIMIT_TEXT = (
-    "Chat is live only. The server does not store it, so you see only what is said while you are in the room. "
-    "Opening the message boards takes you out of the room."
-)
+CHAT_LIMIT_TEXT = "Live chat is not saved. Message boards are."
 POST_LIMIT_TEXT = (
     "Each post or reply must fit in one Reticulum packet, topic included: a few hundred bytes over LoRa or packet "
     "radio, far more over TCP. Longer text is refused. "
