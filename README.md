@@ -129,13 +129,16 @@ menus only in the Server log, so one line each is enough. Create `themes/radio/`
 | `boards_menu.txt` | `Message boards. ? for help.` |
 | `chat_menu.txt` | `Chat. /? for help.` |
 
-The server looks for `themes` in the folder it starts in, so start it from the server folder.
+The server reads `themes`, its databases and `lxmf_storage` from the folder it starts in, so start it from the
+server folder. The theme is always taken from `server_config.json` in that folder; `--config-file` only changes the
+name, announces and web server.
 
 The first admin. RetiBBS has no command for this, so set it once in the server's user database:
 
 1. Connect once with this client, so the server creates your account.
 2. Settings > Your BBS identity > Copy.
-3. Stop the server, run the command below in its folder with your identity pasted in, and start it again.
+3. Run the command below in the server folder with your identity pasted in. The server reads the database on every
+   command, so no restart is needed. In the client, BBS > Check my account picks up the change.
 
 ```bash
 sqlite3 users.db "UPDATE users SET is_admin=1 WHERE hash_hex='PASTE_IDENTITY_HERE';"
@@ -149,6 +152,43 @@ Start the server against a shared `rnsd`, so the BBS and its board alerts use th
 ```bash
 cd RetiBBS/server && python retibbs_server.py --config-file server_config.json --identity-file server_identity.pem
 ```
+
+The server prints its address at start, labelled "Identity hash". That is the address clients connect to.
+
+Running unattended. The server waits for keyboard input (Enter sends an announce) and exits when that input closes,
+so it stops at once under `nohup` or a service manager. Run it in `tmux` or `screen`, or keep its input open:
+
+```bash
+tail -f /dev/null | python retibbs_server.py
+```
+
+Reaching the server on a LAN. Reticulum finds machines on the local network by IPv6 multicast, which many Wi-Fi
+networks and firewalls block; the log then says "No multicast echoes received". Link the machines over TCP instead.
+On the server, add to `~/.reticulum/config` under `[interfaces]` and open TCP port 4242:
+
+```
+  [[LAN TCP]]
+    type = TCPServerInterface
+    enabled = yes
+    listen_ip = 0.0.0.0
+    listen_port = 4242
+```
+
+On each client machine, with the server's IP address:
+
+```
+  [[BBS server]]
+    type = TCPClientInterface
+    enabled = yes
+    target_host = 192.168.1.20
+    target_port = 4242
+```
+
+Board alerts are sent directly, never through a propagation node. If the member's LXMF app is offline when a post
+arrives, the alert is lost after a few retries. Members who want alerts should keep that app running and reachable.
+
+Back up `server_identity.pem` (the BBS address; a new one means a new address), `users.db`, `boards.db` and
+`lxmf_storage/`.
 
 ## Install
 
