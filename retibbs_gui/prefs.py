@@ -6,7 +6,7 @@ import os
 CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "retibbs-gui")
 DEFAULTS = {
     "theme": "light", "font_size": 10, "window": "", "sash": 0, "display_name": "", "alert_address": "",
-    "offline_copy": False, "keep_deleted_boards": False, "last_server": "",
+    "offline_copy": False, "keep_deleted_boards": False, "last_server": "", "ask_save_chat": True,
 }
 
 

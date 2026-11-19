@@ -385,14 +385,25 @@ class SettingsDialog(Dialog):
         ttk.Label(
             copy, style="Muted.TLabel", wraplength=440, justify="left",
             text="Boards and the messages you opened are saved on this computer, so you can read them while not "
-                 "connected, and only new posts are downloaded when you connect. Chat is never saved.",
+                 "connected, and only new posts are downloaded when you connect. Chat is not included.",
         ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.usage_label = ttk.Label(copy)
         self.usage_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.update_copy_widgets()
 
+        chat = ttk.LabelFrame(body, text="Chat", padding=8)
+        chat.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        self.ask_save_var = tk.BooleanVar(value=app.settings["ask_save_chat"])
+        ttk.Checkbutton(chat, text="Ask to save the chat when I quit", variable=self.ask_save_var).grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(
+            chat, style="Muted.TLabel", wraplength=440, justify="left",
+            text="Chat is not kept after the client closes. Save it any time with Save chat in the Chat tab.",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+
         who = ttk.LabelFrame(body, text="Your BBS identity", padding=8)
-        who.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        who.grid(row=5, column=0, sticky="ew", pady=(8, 0))
         ttk.Label(who, text=app.identity.hash.hex()).pack(side="left")
         ttk.Button(who, text="Copy", command=lambda: app.copy(app.identity.hash.hex())).pack(side="right")
         self.buttons()
@@ -456,6 +467,7 @@ class SettingsDialog(Dialog):
             cache.delete_all()
         settings["offline_copy"] = copying
         settings["keep_deleted_boards"] = self.keep_var.get()
+        settings["ask_save_chat"] = self.ask_save_var.get()
         settings.save()
         app = self.app
         if copying != was_copying:
@@ -1051,7 +1063,7 @@ class App:
         return True
 
     def quit(self):
-        if self.chat_unsaved:
+        if self.chat_unsaved and self.settings["ask_save_chat"]:
             answer = messagebox.askyesnocancel(
                 APP_TITLE, "Save the chat before quitting? It is not kept after the client closes.", parent=self.root
             )
