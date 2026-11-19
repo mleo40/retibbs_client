@@ -154,11 +154,14 @@ More:
 - Rename a BBS: right click its name at the top of the list, or Server > Rename this BBS.
 - Share a BBS address: Copy address in the toolbar, or in the Connect dialog for any BBS in your lists. Text in
   the chat, message and log panes copies with Ctrl+C after you select it, or with a right click.
+- Save chat: the Save chat button in the Chat tab, Ctrl+S, or Server > Save chat writes everything in the chat
+  pane, all rooms since the client started, to a text file. The chat is not kept after the client closes, so it asks
+  when you quit with chat you have not saved.
 - Commands typed in the Chat box that start with `/` go to the server's chat area, for example `/list`.
 - Admins: double click Users to load them; right click a user to make them an admin. Right click Message boards for
   New board, or a board for Delete board.
-- Keys: Ctrl+O connect, Ctrl+D disconnect, Ctrl+N new post, F5 refresh, Ctrl+1, 2 and 3 for the tabs, Ctrl+Q
-  quit.
+- Keys: Ctrl+O connect, Ctrl+D disconnect, Ctrl+S save chat, Ctrl+N new post, F5 refresh, Ctrl+1, 2 and 3 for
+  the tabs, Ctrl+Q quit.
 
 ### Offline copy
 
@@ -385,6 +388,7 @@ Help > About, with the version and credits:
 
 ## Revision history
 
+- 0.8.3: Save chat to a text file; asks before quitting with unsaved chat
 - 0.8.2: Copy address button in the toolbar and the Connect dialog; text in the chat, message and log panes
   can be copied with Ctrl+C or a right click
 - 0.8.1: README puts installing and using the client before running a server, screenshots at the end

@@ -14,7 +14,7 @@ import time
 import tkinter as tk
 import webbrowser
 from importlib import metadata
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 
 import RNS
@@ -600,6 +600,7 @@ class App:
         server_menu.add_command(label="Rename this BBS...", command=self.rename_server)
         server_menu.add_command(label="Disconnect", accelerator="Ctrl+D", command=self.disconnect)
         server_menu.add_separator()
+        server_menu.add_command(label="Save chat...", accelerator="Ctrl+S", command=self.save_chat)
         server_menu.add_command(label="Settings...", command=self.settings_dialog)
         server_menu.add_separator()
         server_menu.add_command(label="Quit", accelerator="Ctrl+Q", command=self.quit)
@@ -630,7 +631,7 @@ class App:
         self.menus = [menubar, server_menu, bbs_menu, view_menu, help_menu]
         bindings = {
             "<Control-o>": self.connect_dialog, "<Control-d>": self.disconnect, "<Control-q>": self.quit,
-            "<Control-n>": self.new_post, "<F5>": self.refresh_view,
+            "<Control-s>": self.save_chat, "<Control-n>": self.new_post, "<F5>": self.refresh_view,
             "<Control-Key-1>": lambda: self.notebook.select(CHAT_TAB),
             "<Control-Key-2>": lambda: self.notebook.select(MESSAGE_TAB),
             "<Control-Key-3>": lambda: self.notebook.select(LOG_TAB),
@@ -728,7 +729,7 @@ class App:
         buttons.pack(side="left", expand=True)
         return buttons
 
-    def text_area(self, frame):
+    def text_area(self, frame, extra=()):
         holder = ttk.Frame(frame)
         holder.pack(fill="both", expand=True, pady=(3, 0))
         text = tk.Text(holder, wrap="word", state="disabled", height=10, padx=6, pady=4)
@@ -741,6 +742,8 @@ class App:
         menu = tk.Menu(text, tearoff=0)
         menu.add_command(label="Copy", command=lambda: text.event_generate("<<Copy>>"))
         menu.add_command(label="Select all", command=lambda: (text.focus_set(), text.tag_add("sel", "1.0", "end-1c")))
+        for label, command in extra:
+            menu.add_command(label=label, command=command)
         for sequence in self.right_clicks():
             text.bind(sequence, lambda event: menu.tk_popup(event.x_root, event.y_root))
         return text
@@ -766,8 +769,10 @@ class App:
         self.new_room_button.pack(side="left", padx=(0, 4))
         self.leave_button = ttk.Button(buttons, text="Leave room", command=self.leave_room)
         self.leave_button.pack(side="left")
+        ttk.Button(buttons, text="Save chat", command=self.save_chat).pack(side="left", padx=(4, 0))
         limit_note(frame, CHAT_LIMIT_TEXT).pack(fill="x")
-        self.chat = self.text_area(frame)
+        self.chat = self.text_area(frame, extra=(("Save chat...", self.save_chat),))
+        self.chat_unsaved = False  # True once someone has said something since the chat was last saved
         row, self.chat_entry, self.chat_send = self.entry_row(frame, self.send_chat)
         self.chat_count = ttk.Label(row, style="Muted.TLabel", width=11, anchor="e")
         self.chat_count.pack(side="right", padx=(6, 0))
@@ -856,6 +861,7 @@ class App:
         if who:
             chunks.append((who + ": ", ("name", tag)))
             chunks.append((text + "\n", ()))
+            self.chat_unsaved = True
         else:
             chunks.append((text + "\n", (tag,)))
         self.append(self.chat, chunks)
@@ -1011,13 +1017,46 @@ class App:
 
     def set_connected_widgets(self, online):
         state = "!disabled" if online else "disabled"
-        for widget in (self.disconnect_button, self.copy_address_button, self.post_button, self.new_room_button, self.console_entry,
-                       self.console_send):
+        for widget in (self.disconnect_button, self.copy_address_button, self.post_button, self.new_room_button,
+                       self.console_entry, self.console_send):
             widget.state([state])
         self.reply_button.state(["!disabled" if online and self.reading else "disabled"])
         self.update_chat_count()
 
+    def save_chat(self, event=None):
+        """Write the chat pane, every room since the client started, to a text file. True when saved."""
+        text = self.chat.get("1.0", "end-1c").strip()
+        if not text:
+            messagebox.showinfo("Save chat", "There is no chat to save yet.", parent=self.root)
+            return False
+        server = re.sub(r"[^A-Za-z0-9]+", "-", self.server_name or "").strip("-") or "retibbs"
+        path = filedialog.asksaveasfilename(
+            parent=self.root, title="Save chat", defaultextension=".txt",
+            initialfile=f"chat-{server}-{time.strftime('%Y-%m-%d-%H%M')}.txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*")],
+        )
+        if not path:
+            return False
+        header = f"RetiBBS chat saved {time.strftime('%Y-%m-%d %H:%M %Z')}"
+        if self.server_name:
+            header += f" from {self.server_name}"
+        try:
+            with open(path, "w", encoding="utf-8") as file:
+                file.write(f"{header}\n\n{text}\n")
+        except OSError as error:
+            messagebox.showerror("Save chat", f"Could not save the chat:\n{error}", parent=self.root)
+            return False
+        self.chat_unsaved = False
+        self.show_notice("info", f"Chat saved to {path}")
+        return True
+
     def quit(self):
+        if self.chat_unsaved:
+            answer = messagebox.askyesnocancel(
+                APP_TITLE, "Save the chat before quitting? It is not kept after the client closes.", parent=self.root
+            )
+            if answer is None or (answer and not self.save_chat()):
+                return
         try:
             self.settings["window"] = self.root.geometry()
             self.settings["sash"] = self.pane.sashpos(0)
