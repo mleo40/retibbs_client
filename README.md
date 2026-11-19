@@ -152,6 +152,8 @@ More:
 - Board alerts: Settings > Board alerts, paste the LXMF address of your phone or other LXMF app, Send test. Then
   right click a board and tick Alert me about new posts.
 - Rename a BBS: right click its name at the top of the list, or Server > Rename this BBS.
+- Share a BBS address: Copy address in the toolbar, or in the Connect dialog for any BBS in your lists. Text in
+  the chat, message and log panes copies with Ctrl+C after you select it, or with a right click.
 - Commands typed in the Chat box that start with `/` go to the server's chat area, for example `/list`.
 - Admins: double click Users to load them; right click a user to make them an admin. Right click Message boards for
   New board, or a board for Delete board.
@@ -383,6 +385,8 @@ Help > About, with the version and credits:
 
 ## Revision history
 
+- 0.8.2: Copy address button in the toolbar and the Connect dialog; text in the chat, message and log panes
+  can be copied with Ctrl+C or a right click
 - 0.8.1: README puts installing and using the client before running a server, screenshots at the end
 - 0.8.0: Installs as an app with pipx; app icon and Linux menu entry
 - 0.7.1: Settings shows the disk space the offline copies use

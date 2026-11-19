@@ -162,6 +162,7 @@ class ConnectDialog(Dialog):
         side.grid(row=1, column=2, rowspan=2, sticky="n", pady=(10, 0))
         ttk.Button(side, text="Save to my list", command=self.save).pack(fill="x")
         ttk.Button(side, text="Remove", command=self.remove).pack(fill="x", pady=(4, 0))
+        ttk.Button(side, text="Copy address", command=self.copy_address).pack(fill="x", pady=(4, 0))
         ttk.Label(
             body, style="Muted.TLabel", wraplength=520, justify="left",
             text="Name is how the BBS shows in your list and window. Leave it empty to use the name the server "
@@ -226,6 +227,12 @@ class ConnectDialog(Dialog):
             self.fill_saved()
             self.notebook.select(0)
             self.saved.selection_set(hash_hex)
+
+    def copy_address(self):
+        hash_hex = self.checked_hash("Copy address")
+        if hash_hex:
+            self.clipboard_clear()
+            self.clipboard_append(hash_hex)
 
     def remove(self):
         selection = self.saved.selection()
@@ -643,6 +650,10 @@ class App:
         self.server_label.pack(side="left", padx=(14, 0))
         self.account_label = ttk.Label(toolbar, style="Muted.TLabel")
         self.account_label.pack(side="left", padx=(8, 0))
+        self.copy_address_button = ttk.Button(
+            toolbar, text="Copy address", command=lambda: self.server_hash and self.copy(self.server_hash)
+        )
+        self.copy_address_button.pack(side="left", padx=(8, 0))
         ttk.Button(toolbar, text="Settings", command=self.settings_dialog).pack(side="right")
 
     def build_notice(self):
@@ -695,12 +706,14 @@ class App:
         self.tree.tag_configure("unread", font=self.bold_font)
         self.tree.bind("<Double-1>", self.tree_open)
         self.tree.bind("<Return>", self.tree_open)
-        # Right click is Button-3 on Linux and Windows; Tk on macOS reports it as Button-2, or Ctrl-click
-        right_clicks = ("<Button-3>",)
-        if self.root.tk.call("tk", "windowingsystem") == "aqua":
-            right_clicks = ("<Button-2>", "<Button-3>", "<Control-Button-1>")
-        for sequence in right_clicks:
+        for sequence in self.right_clicks():
             self.tree.bind(sequence, self.tree_menu)
+
+    def right_clicks(self):
+        """Right click is Button-3 on Linux and Windows; Tk on macOS reports it as Button-2, or Ctrl-click."""
+        if self.root.tk.call("tk", "windowingsystem") == "aqua":
+            return ("<Button-2>", "<Button-3>", "<Control-Button-1>")
+        return ("<Button-3>",)
 
     def tab(self, title):
         frame = ttk.Frame(self.notebook)
@@ -723,6 +736,13 @@ class App:
         text.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         text.pack(side="left", fill="both", expand=True)
+        # Tk gives a read-only text no keyboard focus on click, so Ctrl+C would go to another widget
+        text.bind("<Button-1>", lambda event: text.focus_set(), add="+")
+        menu = tk.Menu(text, tearoff=0)
+        menu.add_command(label="Copy", command=lambda: text.event_generate("<<Copy>>"))
+        menu.add_command(label="Select all", command=lambda: (text.focus_set(), text.tag_add("sel", "1.0", "end-1c")))
+        for sequence in self.right_clicks():
+            text.bind(sequence, lambda event: menu.tk_popup(event.x_root, event.y_root))
         return text
 
     def entry_row(self, frame, send):
@@ -991,7 +1011,7 @@ class App:
 
     def set_connected_widgets(self, online):
         state = "!disabled" if online else "disabled"
-        for widget in (self.disconnect_button, self.post_button, self.new_room_button, self.console_entry,
+        for widget in (self.disconnect_button, self.copy_address_button, self.post_button, self.new_room_button, self.console_entry,
                        self.console_send):
             widget.state([state])
         self.reply_button.state(["!disabled" if online and self.reading else "disabled"])
