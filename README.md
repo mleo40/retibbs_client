@@ -250,6 +250,46 @@ If Reticulum programs hang or `rnsd` says it is connected to another shared inst
 look for leftover copies with `pgrep -af retibbs-gui`. Clients before 0.9.0 could leave stuck copies behind on
 Linux with Reticulum 1.6; quit the client and end them with `pkill -9 -f bin/retibbs-gui`.
 
+### How you reach a BBS
+
+A BBS address says who to reach, not where: it is the same over every kind of link. The client reaches a BBS only
+through a chain of links, and each link needs its own way to find the next machine.
+
+```mermaid
+flowchart LR
+  subgraph site["Your site"]
+    host["Reticulum host<br/>BBS, check-in bot, Git, pages"]
+    lan["Laptop or phone<br/>on the same network"]
+  end
+  radio["RNode user<br/>in radio range"]
+  direct["Remote user<br/>with your public address"]
+  hub(("Shared hub<br/>community node or VPS"))
+  remote["Remote users<br/>anywhere"]
+  lan <-- "AutoInterface, automatic<br/>or TCP to port 4242" --> host
+  radio <-- "LoRa radio<br/>RNodeInterface" --> host
+  direct -- "TCP to your public IP, port 4242<br/>needs a port forward" --> host
+  host -- "TCPClientInterface<br/>dials out" --> hub
+  remote -- "TCPClientInterface<br/>dials out" --> hub
+```
+
+Arrows point from the side that connects. On the same network as the BBS, AutoInterface finds it with no settings.
+Over radio, your RNode needs the same settings as the host's. Over the internet, either connect straight to the
+host, which needs a port forward on its router, or connect to a shared hub the host also uses; then the BBS address
+alone is enough. To use a hub, add it to `~/.reticulum/config` with the details its operator gives you:
+
+```
+  [[Shared hub]]
+    type = TCPClientInterface
+    enabled = yes
+    target_host = hub.example.org
+    target_port = 4242
+    network_name = yourgroupname
+    passphrase = something-long-and-private
+```
+
+Leave out `network_name` and `passphrase` for an open hub. View > Network shows whether each link is up; a BBS
+appearing in Connect... shows that its announces reach you.
+
 ## Run your own server
 
 These steps set up a RetiBBS server that suits this client. They need no changes to the server code. Run them as
