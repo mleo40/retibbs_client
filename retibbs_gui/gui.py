@@ -891,6 +891,8 @@ class App:
         self.room_hint = ttk.Label(header, style="HeaderMuted.TLabel")
         self.room_hint.pack(side="left", padx=(8, 0))
         buttons = self.header_buttons(header)
+        self.refresh_rooms_button = ttk.Button(buttons, text="Refresh rooms", command=self.open_rooms)
+        self.refresh_rooms_button.pack(side="left", padx=(0, 4))
         self.new_room_button = ttk.Button(buttons, text="New room", command=self.ask_room)
         self.new_room_button.pack(side="left", padx=(0, 4))
         self.leave_button = ttk.Button(buttons, text="Leave room", command=self.leave_room)
@@ -1144,7 +1146,7 @@ class App:
     def set_connected_widgets(self, online):
         state = "!disabled" if online else "disabled"
         for widget in (self.disconnect_button, self.copy_address_button, self.post_button, self.new_room_button,
-                       self.console_entry, self.console_send):
+                       self.refresh_rooms_button, self.console_entry, self.console_send):
             widget.state([state])
         self.reply_button.state(["!disabled" if online and self.reading else "disabled"])
         self.update_chat_count()

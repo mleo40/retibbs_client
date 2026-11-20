@@ -146,6 +146,7 @@ First steps in the window:
 2. On the first connection, pick a display name. If someone on that BBS already has it, the client asks again.
 3. Double click a board to list its messages; new ones are bold. Double click a message to read it.
 4. Double click a chat room to join it. To start one, click New room in the Chat tab, or right click Chat rooms.
+   The room list does not update by itself; Refresh rooms in the Chat tab loads it again.
 
 More:
 
@@ -416,6 +417,7 @@ Help > About, with the version and credits:
 
 ## Revision history
 
+- 0.9.1: Refresh rooms button in the Chat tab
 - 0.9.0: View > Network shows the Reticulum the client uses and its interfaces; README on adding an interface;
   fix for Reticulum 1.6 leaving stuck copies of the client running after path lookups, which made every
   Reticulum program started later hang
