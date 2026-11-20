@@ -461,6 +461,7 @@ Help > About, with the version and credits:
 
 ## Revision history
 
+- 0.9.3: File dialogs on Linux leave out hidden files; the dialog can still show them
 - 0.9.2: Fits small screens: dialogs scroll, with their buttons always in view, and the window starts no
   bigger than the screen
 - 0.9.1: Refresh rooms button in the Chat tab

@@ -115,6 +115,25 @@ def fit_to_screen(root):
         root.geometry(f"{min(width, screen_w - 40)}x{min(height, screen_h - 100)}+10+10")
 
 
+def hide_hidden_files(root):
+    """
+    Leave hidden files out of the file dialogs on Linux; they show again with the dialog's Show hidden files option.
+
+    Tk's own dialog, used on Linux, lists them by default. macOS and Windows use their system dialogs.
+    """
+    if root.tk.call("tk", "windowingsystem") != "x11":
+        return
+    try:
+        root.tk.call("tk_getOpenFile", "-no-such-option")  # loads the dialog's code, so its settings exist
+    except tk.TclError:
+        pass
+    try:
+        root.tk.call("set", "::tk::dialog::file::showHiddenBtn", "1")
+        root.tk.call("set", "::tk::dialog::file::showHiddenVar", "0")
+    except tk.TclError:
+        pass
+
+
 def clean_hash(text):
     return text.strip().strip("<>").replace(":", "").lower()
 
@@ -2131,6 +2150,7 @@ def main():
     RNS.Transport.register_announce_handler(discovery)
 
     root = tk.Tk(className="retibbs-gui")
+    hide_hidden_files(root)
     app = App(root, identity, prefs.settings(), prefs.servers(), discovery)
     fit_to_screen(root)
     if args.server:
