@@ -86,6 +86,35 @@ def load_identity():
     return identity
 
 
+def window_fits(geometry, screen_width, screen_height):
+    """
+    Check that a saved window geometry fits on this screen, so a size saved on a bigger monitor is not reused.
+
+    :param geometry: Tk geometry, such as 1200x800+40+30
+    :param screen_width: screen width in pixels
+    :param screen_height: screen height in pixels
+    :return: True when it fits
+    """
+    match = re.fullmatch(r"(\d+)x(\d+)(?:\+(-?\d+)\+(-?\d+))?", geometry or "")
+    if not match:
+        return False
+    width, height = int(match.group(1)), int(match.group(2))
+    x, y = int(match.group(3) or 0), int(match.group(4) or 0)
+    return (width <= screen_width and height <= screen_height
+            and 0 <= x <= screen_width - 100 and 0 <= y <= screen_height - 100)
+
+
+def fit_to_screen(root):
+    """Shrink the main window when it would start wider or taller than the screen."""
+    root.update_idletasks()
+    screen_w, screen_h = root.winfo_screenwidth(), root.winfo_screenheight()
+    width, height = root.winfo_width(), root.winfo_height()
+    if width <= 1 or height <= 1:
+        width, height = root.winfo_reqwidth(), root.winfo_reqheight()
+    if width > screen_w - 40 or height > screen_h - 100:
+        root.geometry(f"{min(width, screen_w - 40)}x{min(height, screen_h - 100)}+10+10")
+
+
 def clean_hash(text):
     return text.strip().strip("<>").replace(":", "").lower()
 
@@ -107,24 +136,76 @@ class Dialog(tk.Toplevel):
         self.title(title)
         self.transient(parent)
         self.result = None
+        self.preferred_size = None  # (width, height) for dialogs that want more room than their content asks for
         self.protocol("WM_DELETE_WINDOW", self.cancel)
         self.bind("<Escape>", lambda event: self.cancel())
-        self.body = ttk.Frame(self, padding=10)
-        self.body.pack(fill="both", expand=True)
+        # Buttons sit below the scrolling area, so OK and Cancel stay in view on small screens
+        self.footer = ttk.Frame(self, padding=(10, 0, 10, 10))
+        self.footer.pack(side="bottom", fill="x")
+        holder = ttk.Frame(self)
+        holder.pack(fill="both", expand=True)
+        background = ttk.Style(self).lookup("TFrame", "background") or self.cget("background")
+        self.canvas = tk.Canvas(holder, width=1, height=1, highlightthickness=0, borderwidth=0, background=background)
+        self.scrollbar = ttk.Scrollbar(holder, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.body = ttk.Frame(self.canvas, padding=10)
+        self.body_window = self.canvas.create_window(0, 0, window=self.body, anchor="nw")
+        self.body.bind("<Configure>", lambda event: self.fit_body())
+        self.canvas.bind("<Configure>", lambda event: self.fit_body())
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.bind(sequence, self.wheel, add="+")
+
+    def fit_body(self):
+        """Stretch the body to the visible area, and let it scroll when it is taller."""
+        width, height = self.canvas.winfo_width(), self.canvas.winfo_height()
+        self.canvas.itemconfigure(self.body_window, width=width,
+                                  height=max(height, self.body.winfo_reqheight()))
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        if self.body.winfo_reqheight() > height + 1:
+            if not self.scrollbar.winfo_ismapped():
+                self.scrollbar.pack(side="right", fill="y", before=self.canvas)
+        elif self.scrollbar.winfo_ismapped():
+            self.scrollbar.pack_forget()
+            self.canvas.yview_moveto(0)
+
+    def wheel(self, event):
+        # Text boxes and lists scroll themselves; the dialog scrolls only when it is taller than its window
+        if isinstance(event.widget, (tk.Text, ttk.Treeview, tk.Listbox)) or not self.scrollbar.winfo_ismapped():
+            return
+        step = -1 if getattr(event, "num", 0) == 4 or getattr(event, "delta", 0) > 0 else 1
+        self.canvas.yview_scroll(step * 3, "units")
 
     def buttons(self, ok_text="OK"):
-        row = ttk.Frame(self.body)
-        row.grid(row=99, column=0, columnspan=3, sticky="e", pady=(10, 0))
+        row = self.button_row()
         self.ok_button = ttk.Button(row, text=ok_text, command=self.ok)
         self.ok_button.pack(side="right")
         ttk.Button(row, text="Cancel", command=self.cancel).pack(side="right", padx=(0, 4))
 
+    def button_row(self):
+        row = ttk.Frame(self.footer)
+        row.pack(side="right")
+        return row
+
     def show(self):
-        self.update_idletasks()
-        self.geometry(f"+{self.master.winfo_rootx() + 60}+{self.master.winfo_rooty() + 60}")
+        self.place_on_screen()
         self.grab_set()
         self.wait_window()
         return self.result
+
+    def place_on_screen(self):
+        self.update_idletasks()
+        # Size to the content, but never taller or wider than the screen; the body scrolls instead
+        screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
+        footer_h = self.footer.winfo_reqheight()
+        want_w, want_h = self.preferred_size or (0, 0)
+        width = min(max(want_w, self.body.winfo_reqwidth(), self.footer.winfo_reqwidth()), screen_w - 40)
+        height = min(max(want_h, self.body.winfo_reqheight() + footer_h), screen_h - 100)
+        if self.body.winfo_reqheight() + footer_h > height:
+            width = min(width + self.scrollbar.winfo_reqwidth(), screen_w - 40)  # room for the scrollbar
+        x = min(self.master.winfo_rootx() + 60, max(0, screen_w - width - 20))
+        y = min(self.master.winfo_rooty() + 60, max(0, screen_h - height - 60))
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
     def ok(self):
         self.destroy()
@@ -174,7 +255,7 @@ class ConnectDialog(Dialog):
         self.tick()
         if not self.app.servers:
             self.notebook.select(1)
-        self.geometry("660x430")
+        self.preferred_size = (660, 430)
 
     def make_tree(self, columns, headings):
         frame = ttk.Frame(self.notebook)
@@ -521,9 +602,7 @@ class AboutDialog(Dialog):
         ttk.Label(who, text=f"Your BBS identity: {identity}", style="Muted.TLabel").pack(side="left")
         ttk.Button(who, text="Copy", command=lambda: app.copy(identity)).pack(side="right")
 
-        buttons = ttk.Frame(body)
-        buttons.grid(row=99, column=0, columnspan=2, sticky="e", pady=(10, 0))
-        ttk.Button(buttons, text="Close", command=self.ok).pack(side="right")
+        ttk.Button(self.button_row(), text="Close", command=self.ok).pack(side="right")
 
     @staticmethod
     def link(parent, url, row, column=0):
@@ -582,8 +661,7 @@ class NetworkDialog(Dialog):
         self.tree.grid(row=1, column=0, sticky="nsew")
         self.note = ttk.Label(body, wraplength=560, justify="left", style="Muted.TLabel")
         self.note.grid(row=2, column=0, sticky="w", pady=(6, 0))
-        buttons = ttk.Frame(body)
-        buttons.grid(row=99, column=0, sticky="e", pady=(10, 0))
+        buttons = self.button_row()
         ttk.Button(buttons, text="Close", command=self.ok).pack(side="right")
         ttk.Button(buttons, text="Refresh", command=self.refresh).pack(side="right", padx=(0, 4))
         self.bind("<F5>", lambda event: self.refresh())
@@ -672,8 +750,8 @@ class App:
         self.color_tags = set()
 
         root.title(APP_TITLE)
-        root.minsize(760, 460)
-        if settings["window"]:
+        root.minsize(min(760, root.winfo_screenwidth() - 40), min(460, root.winfo_screenheight() - 100))
+        if settings["window"] and window_fits(settings["window"], root.winfo_screenwidth(), root.winfo_screenheight()):
             try:
                 root.geometry(settings["window"])
             except tk.TclError:
@@ -2018,9 +2096,7 @@ class App:
             ttk.Label(dialog.body, text=text, wraplength=520, justify="left").grid(
                 row=row, column=1, sticky="w", padx=(10, 0), pady=(4, 0)
             )
-        row = ttk.Frame(dialog.body)
-        row.grid(row=99, column=0, columnspan=2, sticky="e", pady=(10, 0))
-        ttk.Button(row, text="Close", command=dialog.ok).pack(side="right")
+        ttk.Button(dialog.button_row(), text="Close", command=dialog.ok).pack(side="right")
         dialog.show()
 
     def about(self):
@@ -2056,6 +2132,7 @@ def main():
 
     root = tk.Tk(className="retibbs-gui")
     app = App(root, identity, prefs.settings(), prefs.servers(), discovery)
+    fit_to_screen(root)
     if args.server:
         root.after(200, lambda: app.connect_to(clean_hash(args.server)))
     root.mainloop()

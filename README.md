@@ -153,6 +153,8 @@ First steps in the window:
 More:
 
 - Right click on macOS: Ctrl-click or a two finger click also works.
+- Small screens: a dialog taller than the screen scrolls, with the mouse wheel or its scrollbar; its buttons
+  stay at the bottom. A window size saved on a bigger monitor is not reused.
 - Board alerts: Settings > Board alerts, paste the LXMF address of your phone or other LXMF app, Send test. Then
   right click a board and tick Alert me about new posts.
 - Rename a BBS: right click its name at the top of the list, or Server > Rename this BBS.
@@ -459,6 +461,8 @@ Help > About, with the version and credits:
 
 ## Revision history
 
+- 0.9.2: Fits small screens: dialogs scroll, with their buttons always in view, and the window starts no
+  bigger than the screen
 - 0.9.1: Refresh rooms button in the Chat tab
 - 0.9.0: View > Network shows the Reticulum the client uses and its interfaces; README on adding an interface;
   fix for Reticulum 1.6 leaving stuck copies of the client running after path lookups, which made every
