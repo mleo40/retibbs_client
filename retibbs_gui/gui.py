@@ -10,6 +10,7 @@ import os
 import platform
 import queue
 import re
+import threading
 import time
 import tkinter as tk
 import webbrowser
@@ -531,6 +532,118 @@ class AboutDialog(Dialog):
         label.bind("<Button-1>", lambda event: webbrowser.open(url))
 
 
+NETWORK_TIMEOUT_MS = 10000
+HIDDEN_INTERFACES = ("LocalInterface[", "Shared Instance[", "TCPInterface[Client", "BackboneInterface[Client on",
+                     "AutoInterfacePeer[", "WeaveInterfacePeer[", "I2PInterfacePeer[Connected peer")
+
+
+def interface_rows(stats):
+    """
+    Turn Reticulum's interface stats into table rows, leaving out the per-client ones rnstatus also hides.
+
+    :param stats: what Reticulum.get_interface_stats() returns
+    :return: list of (name, type, status, rate, received, sent)
+    """
+    rows = []
+    for item in (stats or {}).get("interfaces", []):
+        full = item.get("name", "")
+        if full.startswith(HIDDEN_INTERFACES):
+            continue
+        kind, _, name = full.partition("[")
+        rate = item.get("bitrate")
+        rows.append((
+            name.rstrip("]") or full,
+            kind.replace("Interface", "") or "?",
+            "Up" if item.get("status") else "Down",
+            RNS.prettyspeed(rate) if rate else "",
+            RNS.prettysize(item.get("rxb") or 0),
+            RNS.prettysize(item.get("txb") or 0),
+        ))
+    return rows
+
+
+class NetworkDialog(Dialog):
+    """Which Reticulum the client uses, and its interfaces, like rnstatus."""
+
+    def __init__(self, app):
+        super().__init__(app.root, "Network")
+        self.app = app
+        body = self.body
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(1, weight=1)
+        self.where = ttk.Label(body, wraplength=560, justify="left")
+        self.where.grid(row=0, column=0, sticky="w", pady=(0, 6))
+        columns = ("name", "type", "status", "rate", "rx", "tx")
+        self.tree = ttk.Treeview(body, columns=columns, show="headings", height=6)
+        for column, heading, width in (("name", "Interface", 260), ("type", "Type", 90), ("status", "Status", 60),
+                                       ("rate", "Rate", 90), ("rx", "Received", 80), ("tx", "Sent", 80)):
+            self.tree.heading(column, text=heading, anchor="w")
+            self.tree.column(column, width=width, stretch=column == "name")
+        self.tree.grid(row=1, column=0, sticky="nsew")
+        self.note = ttk.Label(body, wraplength=560, justify="left", style="Muted.TLabel")
+        self.note.grid(row=2, column=0, sticky="w", pady=(6, 0))
+        buttons = ttk.Frame(body)
+        buttons.grid(row=99, column=0, sticky="e", pady=(10, 0))
+        ttk.Button(buttons, text="Close", command=self.ok).pack(side="right")
+        ttk.Button(buttons, text="Refresh", command=self.refresh).pack(side="right", padx=(0, 4))
+        self.bind("<F5>", lambda event: self.refresh())
+        self.refresh()
+
+    def refresh(self):
+        reticulum = RNS.Reticulum.get_instance()
+        shared = reticulum.is_connected_to_shared_instance
+        config = os.path.join(RNS.Reticulum.configdir, "config")
+        if shared:
+            self.where.configure(text="Using the shared Reticulum of another program on this computer, such as "
+                                      "rnsd, MeshChat, Sideband or NomadNet. Its interfaces are set in that "
+                                      "program's configuration.")
+        else:
+            self.where.configure(text=f"Started its own Reticulum. Interfaces are set in {config}; restart the "
+                                      "client after changing it. While the client is open, other Reticulum "
+                                      "programs on this computer use it too.")
+        self.note.configure(text="Asking...")
+        self.asking = asking = object()
+        # A shared instance answers over a local socket; ask in the background so the window never stalls
+        threading.Thread(target=lambda: self.got(asking, reticulum.get_interface_stats(), shared),
+                         daemon=True).start()
+        self.after(NETWORK_TIMEOUT_MS, lambda: self.no_answer(asking, shared))
+
+    def got(self, asking, stats, shared):
+        try:
+            self.after(0, lambda: self.show_rows(asking, stats, shared))
+        except (RuntimeError, tk.TclError):
+            pass  # closed meanwhile
+
+    def no_answer(self, asking, shared):
+        if asking is not self.asking:
+            return
+        self.asking = None
+        self.tree.delete(*self.tree.get_children())
+        self.note.configure(text="No answer from Reticulum. " + (
+            "The shared Reticulum may be stuck: quit every Reticulum program on this computer, check none is left "
+            "running, and start them again." if shared else "Restart the client."))
+
+    def show_rows(self, asking, stats, shared):
+        if asking is not self.asking or not self.winfo_exists():
+            return
+        self.asking = None
+        self.tree.delete(*self.tree.get_children())
+        rows = interface_rows(stats)
+        for row in rows:
+            self.tree.insert("", "end", values=row)
+        if stats is None:
+            self.note.configure(text="The shared Reticulum did not give its interface list. It only does for the "
+                                     "same user with the same configuration, so it may run as another user, "
+                                     "such as rnsd as a system service. The client still works through it."
+                                if shared else "Reticulum did not give its interface list.")
+        elif not rows:
+            self.note.configure(text="No interfaces. Add one to the configuration to reach other computers.")
+        else:
+            up = sum(1 for row in rows if row[2] == "Up")
+            self.note.configure(text=f"{up} of {len(rows)} up. Updated {time.strftime('%H:%M:%S')}; F5 or Refresh "
+                                     "to update.")
+
+
 def package_version(name):
     try:
         return metadata.version(name)
@@ -631,6 +744,7 @@ class App:
         view_menu.add_command(label="Chat", accelerator="Ctrl+1", command=lambda: self.notebook.select(CHAT_TAB))
         view_menu.add_command(label="Message", accelerator="Ctrl+2", command=lambda: self.notebook.select(MESSAGE_TAB))
         view_menu.add_command(label="Server log", accelerator="Ctrl+3", command=lambda: self.notebook.select(LOG_TAB))
+        view_menu.add_command(label="Network...", command=lambda: NetworkDialog(self).show())
         view_menu.add_separator()
         self.dark_var = tk.BooleanVar(value=self.settings["theme"] == "dark")
         view_menu.add_checkbutton(label="Dark mode", variable=self.dark_var, command=self.toggle_theme)
@@ -1911,6 +2025,20 @@ class App:
         AboutDialog(self).show()
 
 
+def single_process_stamps():
+    """
+    Make Reticulum compute stamps in this process instead of in forked workers.
+
+    Reticulum 1.6 stamps path requests and, on Linux, splits the work across processes forked from the caller.
+    Forked from a Tk program with running threads, those workers can deadlock and outlive the client, keeping its
+    shared instance sockets open; every Reticulum program started later then attaches to them and gets no answer.
+    A path request stamp is small enough for one core.
+    """
+    stamps = getattr(RNS, "Stamps", None)
+    if stamps is not None and hasattr(stamps, "POOLING_THRESHOLD_COST_FP"):
+        stamps.POOLING_THRESHOLD_COST_FP = float("inf")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Desktop client for RetiBBS")
     parser.add_argument("--reticulum-config", default=None, help="alternative Reticulum config directory")
@@ -1918,6 +2046,7 @@ def main():
     parser.add_argument("-v", "--verbose", action="count", default=0)
     args = parser.parse_args()
 
+    single_process_stamps()
     RNS.Reticulum(args.reticulum_config, loglevel=RNS.LOG_WARNING + args.verbose)
     identity = load_identity()
     discovery = Discovery()

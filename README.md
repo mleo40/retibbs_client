@@ -37,6 +37,7 @@ The Welcome page after connecting, with the message of the day and the server's 
 - Your own name for each BBS, kept when the server announces a different one
 - Asks for a display name on first connect, since RetiBBS needs one before it answers, and again if it is taken
 - Help > About: version, links, and the projects this client builds on
+- View > Network: the Reticulum the client uses and its interfaces, up or down, with traffic
 
 ## Compatibility
 
@@ -221,6 +222,33 @@ The client does not need its own rnsd service. When it starts, it looks for a sh
 If the client started Reticulum, closing it takes the network down for every app attached to it. If you run several
 Reticulum apps, or want the machine always reachable, run `rnsd` as a service and let the apps attach to it.
 
+View > Network shows which of the two the client is using, and each interface with its status and traffic, like
+`rnstatus`. A shared instance gives the list only to the same user with the same configuration; when it runs as
+another user, such as `rnsd` as a system service, the window says so and the client still works through it.
+
+To add an interface, such as an RNode on `/dev/ttyACM0`, add it under `[interfaces]` in the configuration of the
+Reticulum in use and restart that program: the client itself when it started Reticulum, or `rnsd` or the other app.
+For example, in `~/.reticulum/config`:
+
+```
+  [[RNode LoRa]]
+    type = RNodeInterface
+    enabled = yes
+    port = /dev/ttyACM0
+    frequency = 915000000
+    bandwidth = 125000
+    txpower = 7
+    spreadingfactor = 8
+    codingrate = 5
+```
+
+The radio settings must match the other RNodes you want to reach. On Linux, your user needs to be in the `dialout`
+group to open the port.
+
+If Reticulum programs hang or `rnsd` says it is connected to another shared instance when none should be running,
+look for leftover copies with `pgrep -af retibbs-gui`. Clients before 0.9.0 could leave stuck copies behind on
+Linux with Reticulum 1.6; quit the client and end them with `pkill -9 -f bin/retibbs-gui`.
+
 ## Run your own server
 
 These steps set up a RetiBBS server that suits this client. They need no changes to the server code. Run them as
@@ -388,6 +416,9 @@ Help > About, with the version and credits:
 
 ## Revision history
 
+- 0.9.0: View > Network shows the Reticulum the client uses and its interfaces; README on adding an interface;
+  fix for Reticulum 1.6 leaving stuck copies of the client running after path lookups, which made every
+  Reticulum program started later hang
 - 0.8.4: Setting to turn off the question about saving the chat when you quit
 - 0.8.3: Save chat to a text file; asks before quitting with unsaved chat
 - 0.8.2: Copy address button in the toolbar and the Connect dialog; text in the chat, message and log panes
