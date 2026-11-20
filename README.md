@@ -41,7 +41,9 @@ The Welcome page after connecting, with the message of the day and the server's 
 
 ## Compatibility
 
-- Python 3.10 or newer, Linux, macOS or Windows. Tested on Linux only so far.
+- Python 3.10 or newer, Linux, macOS or Windows. Tested on Linux only so far: Debian 13, and Ubuntu 22.10 with
+  Python 3.10.7. Ubuntu 22.10 is past its end of life, so its packages are on `old-releases.ubuntu.com`; point
+  `/etc/apt/sources.list` there before installing `python3-tk` and `pipx`
 - Tested against the RetiBBS server at commit `7c26d2c` (January 2026)
 - Uses the same identity file as the RetiBBS Textual client, so you keep your account and admin rights
 
